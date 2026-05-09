@@ -368,6 +368,41 @@ export class BattleScene implements Scene {
     const imy = this.pivotY + (my - this.pivotY) / this.battleScale;
     this.hoverTile = this.tileAtScreen(imx, imy);
 
+    // Cursor feedback
+    if (this.hoverButton) {
+      game.setCursor('pointer');
+    } else if (this.hoverSquad) {
+      game.setCursor('pointer');
+    } else if (this.phase === 'place' && this.hoverTile && this.selectedSquad) {
+      game.setCursor(this.canPlaceOn(this.hoverTile) && this.squadsLeft > 0 ? 'crosshair' : 'not-allowed');
+    }
+
+    // Keyboard shortcuts
+    if (game.input.wasPressed('Escape')) {
+      game.goto('map');
+      return;
+    }
+    if (this.phase === 'place') {
+      const squadKeys: Record<string, UnitKind> = { '1': 'knight', '2': 'archer', '3': 'pike' };
+      for (const [key, kind] of Object.entries(squadKeys)) {
+        if (game.input.wasPressed(key)) this.selectedSquad = kind;
+      }
+      if (game.input.wasPressed('Enter') && this.friendly.length > 0) {
+        this.startNextWave();
+        return;
+      }
+    }
+    if ((this.phase === 'victory' || this.phase === 'defeat') && game.input.wasPressed('Enter')) {
+      if (this.phase === 'victory') {
+        game.victories.add(this.islandId);
+        const next = this.islandId + 1;
+        if (ISLAND_BLUEPRINTS[next]) game.unlockedIslands.add(next);
+        game.saveProgress();
+      }
+      game.goto('map');
+      return;
+    }
+
     if (game.input.clicked) {
       if (this.hoverButton === 'retreat') {
         game.goto('map');
@@ -376,9 +411,9 @@ export class BattleScene implements Scene {
       if (this.hoverButton === 'next') {
         if (this.phase === 'victory') {
           game.victories.add(this.islandId);
-          for (let i = this.islandId + 1; i <= this.islandId + 1; i++) {
-            if (ISLAND_BLUEPRINTS[i]) game.unlockedIslands.add(i);
-          }
+          const next = this.islandId + 1;
+          if (ISLAND_BLUEPRINTS[next]) game.unlockedIslands.add(next);
+          game.saveProgress();
         }
         game.goto('map');
         return;
@@ -621,8 +656,8 @@ export class BattleScene implements Scene {
     this.friendly = this.friendly.filter(u => !u.dead);
     this.enemies = this.enemies.filter(u => !u.dead);
 
-    // Win/lose checks
-    if (this.friendly.length === 0 && this.dying.filter(d => d.def.friendly).length === 0) {
+    // Win/lose checks (wait for all death animations to finish)
+    if (this.friendly.length === 0 && !this.dying.some(d => d.def.friendly)) {
       this.phase = 'defeat';
       return;
     }
@@ -967,7 +1002,7 @@ export class BattleScene implements Scene {
 
       if (narrow) {
         // Two-row layout: cards on top, status + button below
-        inkText(ctx, `Squads: ${this.squadsLeft}`, w / 2, cardsY + cardH + 14, 15, true, palette.ink);
+        inkText(ctx, `Squads: ${this.squadsLeft}  ·  Long-press to remove`, w / 2, cardsY + cardH + 14, 13, true, palette.ink);
         const btnW = Math.min(200, w - 48);
         const btnH = 44;
         const btnX = (w - btnW) / 2;
@@ -975,7 +1010,7 @@ export class BattleScene implements Scene {
         drawButton(ctx, btnX, btnY, btnW, btnH, 'Begin Battle ⚔', this.hoverButton === 'begin', this.friendly.length === 0);
       } else {
         inkText(ctx, `Squads left: ${this.squadsLeft}`, w / 2, bottomY + 30, 18, true, palette.ink);
-        const deployText = this.selectedSquad ? `Click to deploy ${UNIT_DEFS[this.selectedSquad].label} · Right-click to remove` : 'Pick a squad';
+        const deployText = this.selectedSquad ? `Click to deploy ${UNIT_DEFS[this.selectedSquad].label} · Right-click to remove` : 'Pick a squad (1/2/3)';
         inkText(ctx, deployText, w / 2, bottomY + 56, 14, false, palette.inkLight);
         drawFlourish(ctx, w / 2, bottomY + 78, 220);
         drawButton(ctx, w - 220, bottomY + 24, 180, 50, 'Begin Battle ⚔', this.hoverButton === 'begin', this.friendly.length === 0);
