@@ -1021,7 +1021,8 @@ function drawRaider(ctx: CanvasRenderingContext2D, facing: number, animState: An
   ctx.strokeStyle = palette.steel;
   ctx.lineWidth = 0.8;
   ctx.beginPath();
-  ctx.quadraticCurveTo(15, -23, 14, -14);
+  ctx.moveTo(8, -22);
+  ctx.quadraticCurveTo(15, -23, 14, -13);
   ctx.stroke();
   ctx.restore();
 }

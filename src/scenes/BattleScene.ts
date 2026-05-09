@@ -712,6 +712,7 @@ export class BattleScene implements Scene {
     drawParchmentBackground(ctx, w, h);
 
     // Screen shake
+    ctx.save();
     if (this.screenShake > 0.1) {
       const sx = (Math.random() - 0.5) * this.screenShake;
       const sy = (Math.random() - 0.5) * this.screenShake;
@@ -747,6 +748,9 @@ export class BattleScene implements Scene {
     if (this.phase === 'victory' || this.phase === 'defeat') {
       this.drawEndScreen(ctx, game);
     }
+
+    // Restore screen shake transform
+    ctx.restore();
   }
 
   private drawSea(ctx: CanvasRenderingContext2D, game: Game) {
