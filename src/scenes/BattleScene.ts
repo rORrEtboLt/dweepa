@@ -4,7 +4,8 @@ import { drawParchmentBackground, drawBanner, drawButton, drawScrollPanel, butto
 import { TILE_W, TILE_H, isoToScreen } from '../render/iso';
 import {
   drawBattleTile, drawUnit, drawHpBar, drawSeaPattern, drawShip, drawCloud,
-  TileColors, UnitKind,
+  drawImpactSparks, drawArrowImpact,
+  TileColors, UnitKind, AnimState,
 } from '../render/sprites';
 
 interface Tile {
@@ -32,6 +33,8 @@ const UNIT_DEFS: Record<UnitKind, UnitDef> = {
   archer: { kind: 'archer', hp: 35, attack: 9, range: 3.4, cooldown: 0.8, speed: 1.2, friendly: true, cost: 1, label: 'Archer' },
   pike: { kind: 'pike', hp: 50, attack: 14, range: 1.5, cooldown: 1.1, speed: 1.2, friendly: true, cost: 1, label: 'Pikeman' },
   raider: { kind: 'raider', hp: 35, attack: 8, range: 1.0, cooldown: 1.0, speed: 1.5, friendly: false },
+  brute: { kind: 'brute', hp: 55, attack: 12, range: 1.2, cooldown: 1.3, speed: 0.9, friendly: false },
+  scout: { kind: 'scout', hp: 20, attack: 6, range: 1.0, cooldown: 0.6, speed: 2.2, friendly: false },
 };
 
 interface Combatant {
@@ -40,12 +43,24 @@ interface Combatant {
   hp: number;
   x: number;
   y: number;
-  tx: number; // tile pos for friendly (anchor)
+  tx: number;
   ty: number;
   facing: 1 | -1;
   cooldown: number;
   hitFlash: number;
   dead: boolean;
+  animState: AnimState;
+  animTimer: number;
+  animDuration: number;
+  walking: boolean;
+}
+
+interface Particle {
+  x: number;
+  y: number;
+  kind: 'spark' | 'arrow-hit';
+  age: number;
+  life: number;
 }
 
 interface Projectile {
@@ -73,6 +88,7 @@ interface Wave {
   count: number;
   delay: number;
   spawnInterval: number;
+  enemies?: UnitKind[];
 }
 
 const ISLAND_BLUEPRINTS: Record<number, {
@@ -137,8 +153,8 @@ const ISLAND_BLUEPRINTS: Record<number, {
     squads: 5,
     waves: [
       { count: 6, delay: 1.5, spawnInterval: 0.55 },
-      { count: 8, delay: 4, spawnInterval: 0.5 },
-      { count: 10, delay: 5, spawnInterval: 0.45 },
+      { count: 8, delay: 4, spawnInterval: 0.5, enemies: ['raider', 'raider', 'raider', 'scout'] },
+      { count: 10, delay: 5, spawnInterval: 0.45, enemies: ['raider', 'raider', 'scout', 'brute'] },
     ],
   },
   3: {
@@ -156,9 +172,9 @@ const ISLAND_BLUEPRINTS: Record<number, {
     spawnEdges: ['N','S','E','W'],
     squads: 6,
     waves: [
-      { count: 7, delay: 1.5, spawnInterval: 0.5 },
-      { count: 9, delay: 4, spawnInterval: 0.45 },
-      { count: 12, delay: 5, spawnInterval: 0.4 },
+      { count: 7, delay: 1.5, spawnInterval: 0.5, enemies: ['raider', 'raider', 'scout'] },
+      { count: 9, delay: 4, spawnInterval: 0.45, enemies: ['raider', 'brute', 'scout', 'raider'] },
+      { count: 12, delay: 5, spawnInterval: 0.4, enemies: ['raider', 'brute', 'scout', 'brute', 'raider'] },
     ],
   },
   4: {
@@ -207,6 +223,9 @@ export class BattleScene implements Scene {
   private enemies: Combatant[] = [];
   private projectiles: Projectile[] = [];
   private floats: FloatText[] = [];
+  private particles: Particle[] = [];
+  private screenShake = 0;
+  private dying: Combatant[] = [];
 
   private phase: 'place' | 'wave-intro' | 'battle' | 'victory' | 'defeat' = 'place';
   private squadsLeft: number;
@@ -389,9 +408,22 @@ export class BattleScene implements Scene {
             cooldown: 0,
             hitFlash: 0,
             dead: false,
+            animState: 'idle',
+            animTimer: 0,
+            animDuration: 0,
+            walking: false,
           });
           this.squadsLeft--;
         }
+      }
+    }
+
+    // Right-click to remove placed unit during placement
+    if (game.input.rightClicked && this.phase === 'place' && this.hoverTile) {
+      const idx = this.friendly.findIndex(u => u.tx === this.hoverTile!.gx && u.ty === this.hoverTile!.gy);
+      if (idx >= 0) {
+        this.friendly.splice(idx, 1);
+        this.squadsLeft++;
       }
     }
 
@@ -412,7 +444,6 @@ export class BattleScene implements Scene {
     // Update floats
     for (const f of this.floats) {
       f.age += dt;
-      f.y -= dt * 18;
     }
     this.floats = this.floats.filter(f => f.age < f.life);
 
@@ -436,7 +467,7 @@ export class BattleScene implements Scene {
     this.waveIntroText = `Wave ${this.currentWave + 1} of ${this.blueprint.waves.length}`;
   }
 
-  private spawnRaider() {
+  private spawnEnemy(enemyKind?: UnitKind) {
     const edges: { gx: number; gy: number }[] = [];
     for (let gx = 0; gx < this.gridW; gx++) {
       edges.push({ gx, gy: -1.5 });
@@ -447,7 +478,8 @@ export class BattleScene implements Scene {
       edges.push({ gx: this.gridW + 0.5, gy });
     }
     const e = edges[Math.floor(Math.random() * edges.length)];
-    const def = UNIT_DEFS.raider;
+    const kind = enemyKind ?? 'raider';
+    const def = UNIT_DEFS[kind];
     this.enemies.push({
       id: _id++,
       def,
@@ -460,6 +492,10 @@ export class BattleScene implements Scene {
       cooldown: 0,
       hitFlash: 0,
       dead: false,
+      animState: 'walk',
+      animTimer: 0,
+      animDuration: 0,
+      walking: true,
     });
   }
 
@@ -468,11 +504,40 @@ export class BattleScene implements Scene {
     if (this.waveSpawnedCount < w.count) {
       this.waveSpawnTimer -= dt;
       if (this.waveSpawnTimer <= 0) {
-        this.spawnRaider();
+        const enemyPool = w.enemies;
+        const kind = enemyPool
+          ? enemyPool[this.waveSpawnedCount % enemyPool.length]
+          : 'raider' as UnitKind;
+        this.spawnEnemy(kind);
         this.waveSpawnedCount++;
         this.waveSpawnTimer = w.spawnInterval;
       }
     }
+
+    // Screen shake decay
+    this.screenShake = Math.max(0, this.screenShake - dt * 15);
+
+    // Update animation timers for all units
+    const allUnits = [...this.friendly, ...this.enemies];
+    for (const u of allUnits) {
+      if (u.animState !== 'idle' && u.animState !== 'walk') {
+        u.animTimer += dt;
+        if (u.animTimer >= u.animDuration) {
+          u.animState = u.walking ? 'walk' : 'idle';
+          u.animTimer = 0;
+        }
+      }
+    }
+
+    // Update dying units
+    for (const d of this.dying) {
+      d.animTimer += dt;
+    }
+    this.dying = this.dying.filter(d => d.animTimer < d.animDuration);
+
+    // Update particles
+    for (const p of this.particles) p.age += dt;
+    this.particles = this.particles.filter(p => p.age < p.life);
 
     // Update friendly: pick target, attack
     for (const u of this.friendly) {
@@ -482,7 +547,7 @@ export class BattleScene implements Scene {
       const target = this.findNearest(u, this.enemies, u.def.range);
       if (target) {
         u.facing = target.x >= u.x ? 1 : -1;
-        if (u.cooldown <= 0) {
+        if (u.cooldown <= 0 && u.animState !== 'attack') {
           this.attackBetween(u, target, true);
           u.cooldown = u.def.cooldown;
         }
@@ -498,12 +563,15 @@ export class BattleScene implements Scene {
       const target = this.findNearest(e, this.friendly, e.def.range);
       if (target) {
         e.facing = target.x >= e.x ? 1 : -1;
-        if (e.cooldown <= 0) {
+        e.walking = false;
+        if (e.animState === 'walk') e.animState = 'idle';
+        if (e.cooldown <= 0 && e.animState !== 'attack') {
           this.attackBetween(e, target, false);
           e.cooldown = e.def.cooldown;
         }
       } else {
-        // walk toward center
+        e.walking = true;
+        if (e.animState === 'idle') e.animState = 'walk';
         const dx = c.x - e.x;
         const dy = c.y - e.y;
         const d = Math.hypot(dx, dy);
@@ -524,6 +592,7 @@ export class BattleScene implements Scene {
       const v = p.speed * dt;
       if (d <= v) {
         p.age = p.life;
+        this.particles.push({ x: p.tx, y: p.ty, kind: 'arrow-hit', age: 0, life: 0.4 });
       } else {
         p.x += (dx / d) * v;
         p.y += (dy / d) * v;
@@ -532,12 +601,28 @@ export class BattleScene implements Scene {
     }
     this.projectiles = this.projectiles.filter(p => p.age < p.life);
 
-    // Cull dead
+    // Move dead units to dying list for death animation
+    for (const u of this.friendly) {
+      if (u.dead) {
+        u.animState = 'dying';
+        u.animTimer = 0;
+        u.animDuration = 0.6;
+        this.dying.push(u);
+      }
+    }
+    for (const u of this.enemies) {
+      if (u.dead) {
+        u.animState = 'dying';
+        u.animTimer = 0;
+        u.animDuration = 0.6;
+        this.dying.push(u);
+      }
+    }
     this.friendly = this.friendly.filter(u => !u.dead);
     this.enemies = this.enemies.filter(u => !u.dead);
 
     // Win/lose checks
-    if (this.friendly.length === 0) {
+    if (this.friendly.length === 0 && this.dying.filter(d => d.def.friendly).length === 0) {
       this.phase = 'defeat';
       return;
     }
@@ -567,8 +652,12 @@ export class BattleScene implements Scene {
   }
 
   private attackBetween(attacker: Combatant, target: Combatant, fromFriendly: boolean) {
+    // Trigger attack animation
+    attacker.animState = 'attack';
+    attacker.animTimer = 0;
+    attacker.animDuration = 0.3;
+
     if (attacker.def.range > 1.6) {
-      // ranged: spawn projectile
       this.projectiles.push({
         x: attacker.x,
         y: attacker.y,
@@ -580,16 +669,26 @@ export class BattleScene implements Scene {
         life: Math.max(0.05, Math.hypot(target.x - attacker.x, target.y - attacker.y) / 10),
         fromFriendly,
       });
-      // Damage applied when projectile lands — for simplicity, apply now to target
       this.applyDamage(target, attacker.def.attack);
     } else {
       this.applyDamage(target, attacker.def.attack);
+      // Melee impact sparks
+      const mx = (attacker.x + target.x) / 2;
+      const my = (attacker.y + target.y) / 2;
+      this.particles.push({ x: mx, y: my, kind: 'spark', age: 0, life: 0.3 });
+      this.screenShake = Math.max(this.screenShake, 2);
     }
   }
 
   private applyDamage(t: Combatant, dmg: number) {
     t.hp -= dmg;
     t.hitFlash = 0.18;
+    // Trigger hurt animation (unless dying)
+    if (t.hp > 0 && t.animState !== 'attack') {
+      t.animState = 'hurt';
+      t.animTimer = 0;
+      t.animDuration = 0.15;
+    }
     this.floats.push({
       x: t.x,
       y: t.y,
@@ -600,6 +699,7 @@ export class BattleScene implements Scene {
     });
     if (t.hp <= 0) {
       t.dead = true;
+      this.screenShake = Math.max(this.screenShake, 4);
     }
   }
 
@@ -610,6 +710,13 @@ export class BattleScene implements Scene {
 
     // Sea background (parchment)
     drawParchmentBackground(ctx, w, h);
+
+    // Screen shake
+    if (this.screenShake > 0.1) {
+      const sx = (Math.random() - 0.5) * this.screenShake;
+      const sy = (Math.random() - 0.5) * this.screenShake;
+      ctx.translate(sx, sy);
+    }
 
     // Scaled context for island rendering
     ctx.save();
@@ -689,16 +796,20 @@ export class BattleScene implements Scene {
       if (this.phase === 'place' && this.hoverTile === t) {
         highlight = this.canPlaceOn(t) ? 'select' : 'red';
       }
-      drawBattleTile(ctx, p.x, p.y, t.elev, colors, highlight);
+      drawBattleTile(ctx, p.x, p.y, t.elev, colors, highlight, t.kind);
     }
 
     // Pass 2: draw entities sorted by their (gx + gy) for proper overlap
     type Renderable = { y: number; draw: () => void };
     const renderables: Renderable[] = [];
-    for (const u of this.friendly) {
-      const elev = this.tiles[Math.round(u.y)]?.[Math.round(u.x)]?.elev ?? 0;
+
+    const addUnitRenderable = (u: Combatant, friendly: boolean) => {
+      const gy = Math.max(0, Math.min(this.gridH - 1, Math.round(u.y)));
+      const gx = Math.max(0, Math.min(this.gridW - 1, Math.round(u.x)));
+      const elev = this.tiles[gy]?.[gx]?.elev ?? 0;
       const p = this.screenForTile(u.x, u.y, elev);
-      const sortKey = u.x + u.y + 0.01;
+      const sortKey = u.x + u.y + (friendly ? 0.01 : 0);
+      const animProgress = u.animDuration > 0 ? u.animTimer / u.animDuration : 0;
       renderables.push({
         y: sortKey,
         draw: () => {
@@ -706,55 +817,74 @@ export class BattleScene implements Scene {
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
           }
-          drawUnit(ctx, p.x, p.y - 4, u.def.kind, u.facing, game.time + u.id);
+          drawUnit(ctx, p.x, p.y - 4, u.def.kind, u.facing, game.time + u.id, u.animState, animProgress);
           if (u.hitFlash > 0) ctx.restore();
-          drawHpBar(ctx, p.x, p.y - 32, 18, u.hp / u.def.hp, true);
-        },
-      });
-    }
-    for (const e of this.enemies) {
-      const elev = this.tiles[Math.round(e.y)]?.[Math.round(e.x)]?.elev ?? 0;
-      const p = this.screenForTile(e.x, e.y, elev);
-      const sortKey = e.x + e.y;
-      renderables.push({
-        y: sortKey,
-        draw: () => {
-          if (e.hitFlash > 0) {
-            ctx.save();
-            ctx.globalCompositeOperation = 'lighter';
+          if (u.animState !== 'dying') {
+            drawHpBar(ctx, p.x, p.y - 32, friendly ? 18 : 16, u.hp / u.def.hp, friendly);
           }
-          drawUnit(ctx, p.x, p.y - 4, e.def.kind, e.facing, game.time + e.id);
-          if (e.hitFlash > 0) ctx.restore();
-          drawHpBar(ctx, p.x, p.y - 32, 16, e.hp / e.def.hp, false);
         },
       });
-    }
+    };
+
+    for (const u of this.friendly) addUnitRenderable(u, true);
+    for (const e of this.enemies) addUnitRenderable(e, false);
+    for (const d of this.dying) addUnitRenderable(d, d.def.friendly);
+
     renderables.sort((a, b) => a.y - b.y);
     for (const r of renderables) r.draw();
 
-    // Projectiles (top layer)
-    for (const p of this.projectiles) {
-      const sp = this.screenForTile(p.x, p.y, 0);
-      ctx.strokeStyle = palette.ink;
-      ctx.lineWidth = 1.5;
-      const back = this.screenForTile(p.x - (p.tx - p.x) * 0.05, p.y - (p.ty - p.y) * 0.05, 0);
-      ctx.beginPath();
-      ctx.moveTo(back.x, back.y - 12);
-      ctx.lineTo(sp.x, sp.y - 12);
-      ctx.stroke();
-      // arrowhead
-      ctx.fillStyle = palette.ink;
-      ctx.beginPath();
-      ctx.arc(sp.x, sp.y - 12, 1.6, 0, Math.PI * 2);
-      ctx.fill();
+    // Particles (melee sparks, arrow impacts)
+    for (const part of this.particles) {
+      const pp = this.screenForTile(part.x, part.y, 0);
+      const progress = part.age / part.life;
+      if (part.kind === 'spark') {
+        drawImpactSparks(ctx, pp.x, pp.y - 14, progress);
+      } else {
+        drawArrowImpact(ctx, pp.x, pp.y - 12, progress);
+      }
     }
 
-    // Floating damage numbers
+    // Projectiles (top layer) — parabolic arc
+    for (const p of this.projectiles) {
+      const sp = this.screenForTile(p.x, p.y, 0);
+      const progress = p.life > 0 ? p.age / p.life : 0;
+      const arcHeight = Math.sin(progress * Math.PI) * 20;
+      ctx.strokeStyle = palette.ink;
+      ctx.lineWidth = 1.5;
+      const back = this.screenForTile(
+        p.x - (p.tx - p.x) * 0.08,
+        p.y - (p.ty - p.y) * 0.08,
+        0
+      );
+      const backArc = Math.sin(Math.max(0, progress - 0.08) * Math.PI) * 20;
+      ctx.beginPath();
+      ctx.moveTo(back.x, back.y - 12 - backArc);
+      ctx.lineTo(sp.x, sp.y - 12 - arcHeight);
+      ctx.stroke();
+      // Arrowhead
+      ctx.fillStyle = palette.ink;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y - 12 - arcHeight, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      // Arrow fletching
+      ctx.strokeStyle = palette.red;
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(back.x, back.y - 12 - backArc - 1.5);
+      ctx.lineTo(back.x, back.y - 12 - backArc + 1.5);
+      ctx.stroke();
+    }
+
+    // Floating damage numbers (arc upward with slight curve)
     for (const f of this.floats) {
       const p = this.screenForTile(f.x, f.y, 0);
-      const a = 1 - f.age / f.life;
+      const progress = f.age / f.life;
+      const a = 1 - progress;
+      const rise = progress * 25;
+      const drift = Math.sin(progress * Math.PI) * 6;
       ctx.globalAlpha = a;
-      inkText(ctx, f.text, p.x, p.y - 30, 14, true, f.color);
+      const size = 14 + (1 - progress) * 4;
+      inkText(ctx, f.text, p.x + drift, p.y - 30 - rise, size, true, f.color);
       ctx.globalAlpha = 1;
     }
   }
@@ -841,7 +971,7 @@ export class BattleScene implements Scene {
         drawButton(ctx, btnX, btnY, btnW, btnH, 'Begin Battle ⚔', this.hoverButton === 'begin', this.friendly.length === 0);
       } else {
         inkText(ctx, `Squads left: ${this.squadsLeft}`, w / 2, bottomY + 30, 18, true, palette.ink);
-        const deployText = this.selectedSquad ? `Click a tile to deploy ${UNIT_DEFS[this.selectedSquad].label}` : 'Pick a squad';
+        const deployText = this.selectedSquad ? `Click to deploy ${UNIT_DEFS[this.selectedSquad].label} · Right-click to remove` : 'Pick a squad';
         inkText(ctx, deployText, w / 2, bottomY + 56, 14, false, palette.inkLight);
         drawFlourish(ctx, w / 2, bottomY + 78, 220);
         drawButton(ctx, w - 220, bottomY + 24, 180, 50, 'Begin Battle ⚔', this.hoverButton === 'begin', this.friendly.length === 0);
