@@ -21,6 +21,10 @@ export class Game {
   unlockedIslands = new Set<number>([0]);
   victories = new Set<number>();
 
+  get isNarrow(): boolean {
+    return this.width < 600;
+  }
+
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.input = new Input(canvas);

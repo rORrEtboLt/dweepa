@@ -238,8 +238,9 @@ export class MapScene implements Scene {
     }
 
     // Footer text
-    inkText(ctx, 'Click an island to defend it from sea raiders', cx, h - 30, 16, false, palette.inkSoft);
-    drawFlourish(ctx, cx, h - 14, 240);
+    const footerHint = game.isNarrow ? 'Tap an island to defend it' : 'Click an island to defend it from sea raiders';
+    inkText(ctx, footerHint, cx, h - 30, 16, false, palette.inkSoft);
+    drawFlourish(ctx, cx, h - 14, Math.min(240, w - 60));
 
     // Back button
     drawButton(ctx, 24, 24, 140, 44, '← Title', this.hoverButton);
