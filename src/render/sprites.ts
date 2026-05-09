@@ -575,39 +575,78 @@ export function drawShip(ctx: CanvasRenderingContext2D, cx: number, cy: number, 
 
 // Battle units --------------------------------------------------------------
 
-export type UnitKind = 'knight' | 'archer' | 'pike' | 'raider';
+export type UnitKind = 'knight' | 'archer' | 'pike' | 'raider' | 'brute' | 'scout';
+export type AnimState = 'idle' | 'attack' | 'hurt' | 'dying' | 'walk';
 
-export function drawUnit(ctx: CanvasRenderingContext2D, cx: number, cy: number, kind: UnitKind, facing = 1, t = 0) {
+export function drawUnit(ctx: CanvasRenderingContext2D, cx: number, cy: number, kind: UnitKind, facing = 1, t = 0, animState: AnimState = 'idle', animProgress = 0) {
   ctx.save();
   ctx.translate(cx, cy);
-  const bob = Math.sin(t * 4) * 0.8;
-  ctx.translate(0, bob);
+
+  // Dying: rotate and fade
+  if (animState === 'dying') {
+    const p = Math.min(1, animProgress);
+    ctx.globalAlpha = 1 - p * 0.8;
+    ctx.rotate(facing * p * 1.4);
+    ctx.translate(0, p * 6);
+  }
+
+  // Hurt: recoil
+  const hurtOffset = animState === 'hurt' ? Math.sin(animProgress * Math.PI) * -3 : 0;
+
+  // Walk bob vs idle bob
+  const bob = animState === 'walk'
+    ? Math.sin(t * 8) * 1.2
+    : Math.sin(t * 4) * 0.8;
+  ctx.translate(hurtOffset * facing, bob);
   ctx.strokeStyle = palette.ink;
   ctx.lineWidth = 1;
   ctx.lineJoin = 'round';
 
   // Shadow
   ctx.fillStyle = 'rgba(40, 25, 10, 0.35)';
+  const shadowStretch = animState === 'dying' ? 1 + animProgress * 0.5 : 1;
   ctx.beginPath();
-  ctx.ellipse(0, 1 - bob, 7, 2.2, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 1 - bob, 7 * shadowStretch, 2.2, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  if (kind === 'knight') drawKnight(ctx, facing);
-  else if (kind === 'archer') drawArcher(ctx, facing);
-  else if (kind === 'pike') drawPike(ctx, facing);
-  else drawRaider(ctx, facing);
+  // Attack lunge
+  const lungeOffset = animState === 'attack'
+    ? Math.sin(animProgress * Math.PI) * 3
+    : 0;
+  ctx.translate(lungeOffset * facing, 0);
+
+  if (kind === 'knight') drawKnight(ctx, facing, animState, animProgress, t);
+  else if (kind === 'archer') drawArcher(ctx, facing, animState, animProgress, t);
+  else if (kind === 'pike') drawPike(ctx, facing, animState, animProgress, t);
+  else if (kind === 'brute') drawBrute(ctx, facing, animState, animProgress, t);
+  else if (kind === 'scout') drawScout(ctx, facing, animState, animProgress, t);
+  else drawRaider(ctx, facing, animState, animProgress, t);
 
   ctx.restore();
 }
 
-function drawKnight(ctx: CanvasRenderingContext2D, facing: number) {
+function drawKnight(ctx: CanvasRenderingContext2D, facing: number, animState: AnimState, animProgress: number, t: number) {
   ctx.scale(facing, 1);
-  // Legs
+  const walkCycle = animState === 'walk' ? Math.sin(t * 8) * 2 : 0;
+  // Legs (animated walk)
   ctx.fillStyle = palette.steelDark;
-  ctx.fillRect(-3, -6, 2.5, 6);
-  ctx.fillRect(0.5, -6, 2.5, 6);
-  ctx.strokeRect(-3, -6, 2.5, 6);
-  ctx.strokeRect(0.5, -6, 2.5, 6);
+  ctx.fillRect(-3, -6 - Math.max(0, walkCycle), 2.5, 6);
+  ctx.fillRect(0.5, -6 - Math.max(0, -walkCycle), 2.5, 6);
+  ctx.strokeRect(-3, -6 - Math.max(0, walkCycle), 2.5, 6);
+  ctx.strokeRect(0.5, -6 - Math.max(0, -walkCycle), 2.5, 6);
+  // Cape (behind body)
+  ctx.fillStyle = palette.blue;
+  ctx.globalAlpha = 0.7;
+  const capeWave = Math.sin(t * 3) * 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-4, -14);
+  ctx.lineTo(-3, -14);
+  ctx.quadraticCurveTo(-5 + capeWave, -8, -6 + capeWave, -2);
+  ctx.quadraticCurveTo(-7 + capeWave, 0, -5 + capeWave, -1);
+  ctx.lineTo(-6, -6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
   // Body
   ctx.fillStyle = palette.steel;
   ctx.beginPath();
@@ -618,6 +657,12 @@ function drawKnight(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  // Pauldrons
+  ctx.fillStyle = palette.steelDark;
+  ctx.fillRect(-6, -16, 3, 2.5);
+  ctx.strokeRect(-6, -16, 3, 2.5);
+  ctx.fillRect(3, -16, 3, 2.5);
+  ctx.strokeRect(3, -16, 3, 2.5);
   // Tabard
   ctx.fillStyle = palette.blue;
   ctx.beginPath();
@@ -628,6 +673,11 @@ function drawKnight(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  // Belt
+  ctx.fillStyle = palette.woodDark;
+  ctx.fillRect(-4, -7, 8, 1.5);
+  ctx.fillStyle = palette.gold;
+  ctx.fillRect(-1, -7.5, 2, 2);
   // Head / helm
   ctx.fillStyle = palette.steel;
   ctx.beginPath();
@@ -647,14 +697,21 @@ function drawKnight(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  // Sword
+  // Sword (animated swing on attack)
+  ctx.save();
+  const swordAngle = animState === 'attack'
+    ? (-0.8 + Math.sin(animProgress * Math.PI) * 1.6)
+    : 0;
+  ctx.translate(5, -16);
+  ctx.rotate(swordAngle);
   ctx.fillStyle = palette.steel;
-  ctx.fillRect(5, -16, 2, -10);
-  ctx.strokeRect(5, -16, 2, -10);
+  ctx.fillRect(0, 0, 2, -12);
+  ctx.strokeRect(0, 0, 2, -12);
   ctx.fillStyle = palette.gold;
-  ctx.fillRect(4, -16, 4, 1.5);
-  ctx.strokeRect(4, -16, 4, 1.5);
-  // Shield
+  ctx.fillRect(-1, 0, 4, 1.5);
+  ctx.strokeRect(-1, 0, 4, 1.5);
+  ctx.restore();
+  // Shield with cross emblem
   ctx.fillStyle = palette.red;
   ctx.beginPath();
   ctx.moveTo(-7, -14);
@@ -665,16 +722,37 @@ function drawKnight(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  ctx.strokeStyle = palette.gold;
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(-5, -13); ctx.lineTo(-5, -6);
+  ctx.moveTo(-7, -10); ctx.lineTo(-3, -10);
+  ctx.stroke();
+  ctx.strokeStyle = palette.ink;
+  ctx.lineWidth = 1;
 }
 
-function drawArcher(ctx: CanvasRenderingContext2D, facing: number) {
+function drawArcher(ctx: CanvasRenderingContext2D, facing: number, animState: AnimState, animProgress: number, t: number) {
   ctx.scale(facing, 1);
-  // Legs
+  const walkCycle = animState === 'walk' ? Math.sin(t * 8) * 2 : 0;
+  // Legs (animated walk)
   ctx.fillStyle = palette.woodDark;
-  ctx.fillRect(-3, -6, 2.5, 6);
-  ctx.fillRect(0.5, -6, 2.5, 6);
-  ctx.strokeRect(-3, -6, 2.5, 6);
-  ctx.strokeRect(0.5, -6, 2.5, 6);
+  ctx.fillRect(-3, -6 - Math.max(0, walkCycle), 2.5, 6);
+  ctx.fillRect(0.5, -6 - Math.max(0, -walkCycle), 2.5, 6);
+  ctx.strokeRect(-3, -6 - Math.max(0, walkCycle), 2.5, 6);
+  ctx.strokeRect(0.5, -6 - Math.max(0, -walkCycle), 2.5, 6);
+  // Quiver on back
+  ctx.fillStyle = palette.woodDark;
+  ctx.fillRect(-6, -18, 3, 12);
+  ctx.strokeRect(-6, -18, 3, 12);
+  ctx.strokeStyle = palette.ink;
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(-5.5, -18); ctx.lineTo(-5.5, -21);
+  ctx.moveTo(-4.5, -18); ctx.lineTo(-4.5, -20);
+  ctx.moveTo(-3.5, -18); ctx.lineTo(-3.5, -22);
+  ctx.stroke();
+  ctx.lineWidth = 1;
   // Body / tunic
   ctx.fillStyle = palette.hood;
   ctx.beginPath();
@@ -700,37 +778,69 @@ function drawArcher(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.beginPath();
   ctx.arc(0, -19, 2.5, 0, Math.PI * 2);
   ctx.fill();
-  // Bow
+  // Bow (recurve shape, animated draw on attack)
+  const drawPull = animState === 'attack'
+    ? (animProgress < 0.4 ? animProgress / 0.4 : animProgress < 0.5 ? 1 : Math.max(0, 1 - (animProgress - 0.5) / 0.2))
+    : 0;
   ctx.strokeStyle = palette.wood;
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = 1.8;
   ctx.beginPath();
-  ctx.arc(7, -12, 8, -Math.PI * 0.55, Math.PI * 0.55);
+  ctx.arc(7 + drawPull * 2, -12, 8, -Math.PI * 0.55, Math.PI * 0.55);
   ctx.stroke();
-  // String
+  // Recurve tips
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(7, -19.5, 2, Math.PI * 0.3, Math.PI * 0.8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(7, -4.5, 2, -Math.PI * 0.8, -Math.PI * 0.3);
+  ctx.stroke();
+  // String (pulled back during attack)
   ctx.strokeStyle = palette.parchmentLight;
   ctx.lineWidth = 0.6;
+  const stringPull = drawPull * 4;
   ctx.beginPath();
   ctx.moveTo(7, -19.5);
-  ctx.lineTo(7, -4.5);
+  ctx.quadraticCurveTo(7 - stringPull, -12, 7, -4.5);
   ctx.stroke();
-  // Arrow
-  ctx.strokeStyle = palette.ink;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(2, -12);
-  ctx.lineTo(11, -12);
-  ctx.stroke();
+  // Arrow (nocked, pulls back with string)
+  if (animState !== 'attack' || animProgress < 0.5) {
+    ctx.strokeStyle = palette.ink;
+    ctx.lineWidth = 1;
+    const arrowPull = stringPull;
+    ctx.beginPath();
+    ctx.moveTo(2 - arrowPull, -12);
+    ctx.lineTo(11, -12);
+    ctx.stroke();
+    // Arrowhead
+    ctx.fillStyle = palette.steelDark;
+    ctx.beginPath();
+    ctx.moveTo(12, -12);
+    ctx.lineTo(10, -13.5);
+    ctx.lineTo(10, -10.5);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
-function drawPike(ctx: CanvasRenderingContext2D, facing: number) {
+function drawPike(ctx: CanvasRenderingContext2D, facing: number, animState: AnimState, animProgress: number, t: number) {
   ctx.scale(facing, 1);
-  // Legs
+  const walkCycle = animState === 'walk' ? Math.sin(t * 8) * 2 : 0;
+  // Legs (animated walk)
   ctx.fillStyle = palette.woodDark;
-  ctx.fillRect(-3, -6, 2.5, 6);
-  ctx.fillRect(0.5, -6, 2.5, 6);
-  ctx.strokeRect(-3, -6, 2.5, 6);
-  ctx.strokeRect(0.5, -6, 2.5, 6);
-  // Body
+  ctx.fillRect(-3, -6 - Math.max(0, walkCycle), 2.5, 6);
+  ctx.fillRect(0.5, -6 - Math.max(0, -walkCycle), 2.5, 6);
+  ctx.strokeRect(-3, -6 - Math.max(0, walkCycle), 2.5, 6);
+  ctx.strokeRect(0.5, -6 - Math.max(0, -walkCycle), 2.5, 6);
+  // Shield on back
+  ctx.fillStyle = palette.steelDark;
+  ctx.globalAlpha = 0.6;
+  ctx.beginPath();
+  ctx.ellipse(-5, -11, 3.5, 5, 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  // Body (chain mail texture)
   ctx.fillStyle = palette.steelDark;
   ctx.beginPath();
   ctx.moveTo(-5, -6);
@@ -740,13 +850,25 @@ function drawPike(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  // Chain mail lines
+  ctx.strokeStyle = palette.steel;
+  ctx.lineWidth = 0.5;
+  for (let row = 0; row < 3; row++) {
+    const ry = -8 - row * 3;
+    ctx.beginPath();
+    ctx.moveTo(-3, ry);
+    ctx.lineTo(3, ry);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = palette.ink;
+  ctx.lineWidth = 1;
   // Head
   ctx.fillStyle = palette.flesh;
   ctx.beginPath();
   ctx.arc(0, -19, 3.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  // Helm
+  // Helm with nose guard
   ctx.fillStyle = palette.steel;
   ctx.beginPath();
   ctx.moveTo(-4, -19);
@@ -756,11 +878,25 @@ function drawPike(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  // Pike
+  // Nose guard
+  ctx.strokeStyle = palette.steelDark;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(0, -22);
+  ctx.lineTo(0, -17.5);
+  ctx.stroke();
+  ctx.strokeStyle = palette.ink;
+  ctx.lineWidth = 1;
+  // Pike (animated thrust on attack)
+  const thrustOffset = animState === 'attack'
+    ? Math.sin(animProgress * Math.PI) * 8
+    : 0;
+  ctx.save();
+  ctx.translate(0, -thrustOffset);
   ctx.strokeStyle = palette.wood;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(6, -2);
+  ctx.moveTo(6, -2 + thrustOffset);
   ctx.lineTo(6, -28);
   ctx.stroke();
   // Pike head
@@ -775,16 +911,40 @@ function drawPike(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  ctx.restore();
 }
 
-function drawRaider(ctx: CanvasRenderingContext2D, facing: number) {
+function drawRaider(ctx: CanvasRenderingContext2D, facing: number, animState: AnimState, animProgress: number, t: number) {
   ctx.scale(facing, 1);
-  // Legs
+  const walkCycle = animState === 'walk' ? Math.sin(t * 8) * 2 : 0;
+  // Legs (animated walk)
   ctx.fillStyle = palette.cliffDark;
-  ctx.fillRect(-3, -6, 2.5, 6);
-  ctx.fillRect(0.5, -6, 2.5, 6);
-  ctx.strokeRect(-3, -6, 2.5, 6);
-  ctx.strokeRect(0.5, -6, 2.5, 6);
+  ctx.fillRect(-3, -6 - Math.max(0, walkCycle), 2.5, 6);
+  ctx.fillRect(0.5, -6 - Math.max(0, -walkCycle), 2.5, 6);
+  ctx.strokeRect(-3, -6 - Math.max(0, walkCycle), 2.5, 6);
+  ctx.strokeRect(0.5, -6 - Math.max(0, -walkCycle), 2.5, 6);
+  // Fur cloak (jagged shoulders)
+  ctx.fillStyle = '#5a4028';
+  ctx.beginPath();
+  ctx.moveTo(-6, -15);
+  ctx.lineTo(-8, -13);
+  ctx.lineTo(-6, -11);
+  ctx.lineTo(-7, -9);
+  ctx.lineTo(-5, -8);
+  ctx.lineTo(-5, -6);
+  ctx.lineTo(-4, -15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(6, -15);
+  ctx.lineTo(8, -13);
+  ctx.lineTo(6, -11);
+  ctx.lineTo(7, -9);
+  ctx.lineTo(5, -8);
+  ctx.lineTo(5, -6);
+  ctx.lineTo(4, -15);
+  ctx.closePath();
+  ctx.fill();
   // Body
   ctx.fillStyle = palette.redDark;
   ctx.beginPath();
@@ -801,6 +961,14 @@ function drawRaider(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.arc(0, -19, 3.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
+  // War paint (red marks)
+  ctx.strokeStyle = palette.red;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-2, -20.5); ctx.lineTo(-1, -17.5);
+  ctx.moveTo(1, -20.5); ctx.lineTo(2, -17.5);
+  ctx.stroke();
+  ctx.strokeStyle = palette.ink;
   // Horned helm
   ctx.fillStyle = palette.cliffDark;
   ctx.beginPath();
@@ -809,35 +977,54 @@ function drawRaider(ctx: CanvasRenderingContext2D, facing: number) {
   ctx.stroke();
   ctx.beginPath();
   ctx.moveTo(-4, -20);
-  ctx.lineTo(-7, -23);
+  ctx.lineTo(-7, -26);
   ctx.lineTo(-3, -22);
   ctx.closePath();
   ctx.moveTo(4, -20);
-  ctx.lineTo(7, -23);
+  ctx.lineTo(7, -26);
   ctx.lineTo(3, -22);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  // Eye glow
+  // Eye glow (pulsing)
+  const eyePulse = 0.6 + Math.sin(t * 6) * 0.4;
   ctx.fillStyle = palette.accent;
-  ctx.fillRect(-2, -19, 4, 0.8);
-  // Axe
+  ctx.globalAlpha = eyePulse;
+  ctx.fillRect(-2, -19.5, 4, 1.2);
+  ctx.globalAlpha = 1;
+  // Axe (animated chop on attack)
+  ctx.save();
+  const axeAngle = animState === 'attack'
+    ? (-0.5 + Math.sin(animProgress * Math.PI) * 1.2)
+    : 0;
+  ctx.translate(7, -12);
+  ctx.rotate(axeAngle);
+  ctx.translate(-7, 12);
   ctx.strokeStyle = palette.wood;
-  ctx.lineWidth = 1.4;
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(6, -2);
   ctx.lineTo(8, -22);
   ctx.stroke();
+  // Bigger axe head
   ctx.fillStyle = palette.steelDark;
   ctx.strokeStyle = palette.ink;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(8, -22);
-  ctx.quadraticCurveTo(15, -22, 13, -14);
-  ctx.lineTo(8, -16);
+  ctx.quadraticCurveTo(16, -23, 14, -13);
+  ctx.lineTo(8, -15);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  // Axe edge highlight
+  ctx.strokeStyle = palette.steel;
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(8, -22);
+  ctx.quadraticCurveTo(15, -23, 14, -13);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // Battle island tile + grid drawing -----------------------------------------
@@ -853,7 +1040,8 @@ export function drawBattleTile(
   cx: number, cy: number,
   elev: number,
   colors: TileColors,
-  highlight: 'none' | 'hover' | 'select' | 'red' = 'none'
+  highlight: 'none' | 'hover' | 'select' | 'red' = 'none',
+  tileKind?: string
 ) {
   const w = TILE_W;
   const h = TILE_H;
@@ -898,6 +1086,68 @@ export function drawBattleTile(
   ctx.strokeStyle = palette.ink;
   ctx.lineWidth = 1;
   ctx.stroke();
+
+  // Tile detail decorations
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx, baseY - h / 2);
+  ctx.lineTo(cx + w / 2, baseY);
+  ctx.lineTo(cx, baseY + h / 2);
+  ctx.lineTo(cx - w / 2, baseY);
+  ctx.closePath();
+  ctx.clip();
+
+  const seed = Math.abs(cx * 7 + cy * 13) | 0;
+  setSeed(seed);
+
+  if (tileKind === 'grass') {
+    ctx.strokeStyle = palette.grassDark;
+    ctx.lineWidth = 0.7;
+    for (let i = 0; i < 4; i++) {
+      const gx = cx - 12 + rand() * 24;
+      const gy = baseY - 4 + rand() * 8;
+      ctx.beginPath();
+      ctx.moveTo(gx, gy);
+      ctx.lineTo(gx - 1 + rand() * 2, gy - 3 - rand() * 2);
+      ctx.stroke();
+    }
+  } else if (tileKind === 'stone') {
+    ctx.strokeStyle = palette.stoneDark;
+    ctx.lineWidth = 0.5;
+    ctx.globalAlpha = 0.4;
+    for (let i = 0; i < 2; i++) {
+      const gx = cx - 10 + rand() * 20;
+      const gy = baseY - 3 + rand() * 6;
+      ctx.beginPath();
+      ctx.moveTo(gx, gy);
+      ctx.lineTo(gx + 4 + rand() * 6, gy + rand() * 3 - 1);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  } else if (tileKind === 'beach') {
+    ctx.fillStyle = palette.parchmentDark;
+    ctx.globalAlpha = 0.3;
+    for (let i = 0; i < 3; i++) {
+      const gx = cx - 10 + rand() * 20;
+      const gy = baseY - 3 + rand() * 6;
+      ctx.beginPath();
+      ctx.arc(gx, gy, 0.6 + rand() * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  } else if (tileKind === 'volcanic') {
+    ctx.fillStyle = '#e85020';
+    ctx.globalAlpha = 0.15;
+    for (let i = 0; i < 2; i++) {
+      const gx = cx - 8 + rand() * 16;
+      const gy = baseY - 2 + rand() * 4;
+      ctx.beginPath();
+      ctx.arc(gx, gy, 1 + rand() * 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
 
   if (highlight !== 'none') {
     ctx.beginPath();
@@ -946,6 +1196,181 @@ export function drawSeaPattern(ctx: CanvasRenderingContext2D, x: number, y: numb
     ctx.quadraticCurveTo(sx + 4, sy - 1 + off, sx + 8, sy + off);
     ctx.stroke();
   }
+  ctx.restore();
+}
+
+// Impact spark burst (for melee hits)
+export function drawImpactSparks(ctx: CanvasRenderingContext2D, cx: number, cy: number, progress: number, count = 5) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  const alpha = 1 - progress;
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = palette.gold;
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + progress * 0.5;
+    const dist = 3 + progress * 12;
+    const len = 2 + (1 - progress) * 4;
+    const x1 = Math.cos(angle) * dist;
+    const y1 = Math.sin(angle) * dist;
+    const x2 = Math.cos(angle) * (dist + len);
+    const y2 = Math.sin(angle) * (dist + len);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// Arrow impact puff
+export function drawArrowImpact(ctx: CanvasRenderingContext2D, cx: number, cy: number, progress: number) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  const alpha = 1 - progress;
+  ctx.globalAlpha = alpha * 0.6;
+  ctx.fillStyle = palette.parchmentDark;
+  for (let i = 0; i < 4; i++) {
+    const angle = (i / 4) * Math.PI * 2 + progress;
+    const dist = progress * 8;
+    const r = 1.5 * (1 - progress * 0.5);
+    ctx.beginPath();
+    ctx.arc(Math.cos(angle) * dist, Math.sin(angle) * dist, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// Brute enemy (bigger raider)
+function drawBrute(ctx: CanvasRenderingContext2D, facing: number, animState: AnimState, animProgress: number, t: number) {
+  ctx.scale(facing, 1);
+  const walkCycle = animState === 'walk' ? Math.sin(t * 6) * 1.5 : 0;
+  // Thick legs
+  ctx.fillStyle = '#3a2a20';
+  ctx.fillRect(-4, -7 - Math.max(0, walkCycle), 3.5, 7);
+  ctx.fillRect(0.5, -7 - Math.max(0, -walkCycle), 3.5, 7);
+  ctx.strokeRect(-4, -7 - Math.max(0, walkCycle), 3.5, 7);
+  ctx.strokeRect(0.5, -7 - Math.max(0, -walkCycle), 3.5, 7);
+  // Big body
+  ctx.fillStyle = '#4a2a18';
+  ctx.beginPath();
+  ctx.moveTo(-7, -7);
+  ctx.lineTo(7, -7);
+  ctx.lineTo(6, -18);
+  ctx.lineTo(-6, -18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Chest plate
+  ctx.fillStyle = palette.steelDark;
+  ctx.beginPath();
+  ctx.moveTo(-4, -8);
+  ctx.lineTo(4, -8);
+  ctx.lineTo(3, -16);
+  ctx.lineTo(-3, -16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Head
+  ctx.fillStyle = '#a07050';
+  ctx.beginPath();
+  ctx.arc(0, -21, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // Skull mask
+  ctx.fillStyle = '#e8e0d0';
+  ctx.beginPath();
+  ctx.arc(0, -21, 3, Math.PI * 0.2, Math.PI * 0.8);
+  ctx.fill();
+  ctx.fillStyle = palette.ink;
+  ctx.fillRect(-1.5, -22, 1.2, 1.2);
+  ctx.fillRect(0.3, -22, 1.2, 1.2);
+  // Mace (animated swing)
+  ctx.save();
+  const maceAngle = animState === 'attack'
+    ? (-0.6 + Math.sin(animProgress * Math.PI) * 1.4)
+    : 0;
+  ctx.translate(7, -14);
+  ctx.rotate(maceAngle);
+  ctx.strokeStyle = palette.wood;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, 10);
+  ctx.lineTo(0, -8);
+  ctx.stroke();
+  ctx.fillStyle = palette.steelDark;
+  ctx.strokeStyle = palette.ink;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(0, -10, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // Spikes
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * 3.5, -10 + Math.sin(a) * 3.5);
+    ctx.lineTo(Math.cos(a) * 6, -10 + Math.sin(a) * 6);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Scout enemy (fast, light)
+function drawScout(ctx: CanvasRenderingContext2D, facing: number, animState: AnimState, animProgress: number, t: number) {
+  ctx.scale(facing, 1);
+  const walkCycle = animState === 'walk' ? Math.sin(t * 10) * 2.5 : 0;
+  // Fast-moving legs (longer stride)
+  ctx.fillStyle = '#5a4a3a';
+  ctx.fillRect(-2.5, -5 - Math.max(0, walkCycle), 2, 5);
+  ctx.fillRect(0.5, -5 - Math.max(0, -walkCycle), 2, 5);
+  ctx.strokeRect(-2.5, -5 - Math.max(0, walkCycle), 2, 5);
+  ctx.strokeRect(0.5, -5 - Math.max(0, -walkCycle), 2, 5);
+  // Slim body
+  ctx.fillStyle = '#3a4a3a';
+  ctx.beginPath();
+  ctx.moveTo(-4, -5);
+  ctx.lineTo(4, -5);
+  ctx.lineTo(3, -14);
+  ctx.lineTo(-3, -14);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Hooded head
+  ctx.fillStyle = '#2a3a2a';
+  ctx.beginPath();
+  ctx.moveTo(-3, -14);
+  ctx.lineTo(3, -14);
+  ctx.lineTo(4, -20);
+  ctx.lineTo(-4, -20);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Glowing eyes
+  ctx.fillStyle = '#80ff80';
+  ctx.globalAlpha = 0.5 + Math.sin(t * 8) * 0.3;
+  ctx.fillRect(-1.5, -17.5, 1, 0.8);
+  ctx.fillRect(0.5, -17.5, 1, 0.8);
+  ctx.globalAlpha = 1;
+  // Dual daggers (animated slash)
+  const slashAngle = animState === 'attack'
+    ? Math.sin(animProgress * Math.PI) * 1.0
+    : 0;
+  ctx.save();
+  ctx.translate(4, -10);
+  ctx.rotate(slashAngle);
+  ctx.fillStyle = palette.steel;
+  ctx.fillRect(0, 0, 1.5, -8);
+  ctx.strokeRect(0, 0, 1.5, -8);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(-4, -10);
+  ctx.rotate(-slashAngle * 0.8);
+  ctx.fillStyle = palette.steel;
+  ctx.fillRect(-1.5, 0, 1.5, -7);
+  ctx.strokeRect(-1.5, 0, 1.5, -7);
   ctx.restore();
 }
 
