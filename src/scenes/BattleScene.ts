@@ -99,7 +99,7 @@ const ISLAND_BLUEPRINTS: Record<number, {
   waves: Wave[];
 }> = {
   0: {
-    name: 'Greenshore',
+    name: 'Haritpur',
     rows: [
       '..bbbb..',
       '.bggggb.',
@@ -118,7 +118,7 @@ const ISLAND_BLUEPRINTS: Record<number, {
     ],
   },
   1: {
-    name: 'Mt. Aerwyn',
+    name: 'Merugiri',
     rows: [
       '..ssss..',
       '.sg##gs.',
@@ -138,7 +138,7 @@ const ISLAND_BLUEPRINTS: Record<number, {
     ],
   },
   2: {
-    name: 'Emberhold',
+    name: 'Agnidurg',
     rows: [
       '..bbbb..',
       '.bvvvvb.',
@@ -158,7 +158,7 @@ const ISLAND_BLUEPRINTS: Record<number, {
     ],
   },
   3: {
-    name: 'Crown Keep',
+    name: 'Rajgarh',
     rows: [
       '..ssss..',
       '.sgggss.',
@@ -178,7 +178,7 @@ const ISLAND_BLUEPRINTS: Record<number, {
     ],
   },
   4: {
-    name: 'Palm Reach',
+    name: 'Narikelvan',
     rows: [
       '..bbbb..',
       '.bbggbb.',

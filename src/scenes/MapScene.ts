@@ -17,7 +17,7 @@ interface IslandDef {
 
 const ISLAND_DEFS: IslandDef[] = [
   {
-    id: 0, name: 'Greenshore', theme: 'grass', size: 110, nx: 250, ny: 480, difficulty: 1,
+    id: 0, name: 'Haritpur', theme: 'grass', size: 110, nx: 250, ny: 480, difficulty: 1,
     features: [
       { kind: 'tree', gx: -40, gy: -10, variant: 'oak' },
       { kind: 'tree', gx: -20, gy: 18, variant: 'oak' },
@@ -26,7 +26,7 @@ const ISLAND_DEFS: IslandDef[] = [
     ],
   },
   {
-    id: 1, name: 'Mt. Aerwyn', theme: 'mountain', size: 130, nx: 500, ny: 380, difficulty: 2,
+    id: 1, name: 'Merugiri', theme: 'mountain', size: 130, nx: 500, ny: 380, difficulty: 2,
     features: [
       { kind: 'mountain', gx: 0, gy: -10 },
       { kind: 'tower', gx: -45, gy: 15 },
@@ -35,7 +35,7 @@ const ISLAND_DEFS: IslandDef[] = [
     ],
   },
   {
-    id: 2, name: 'Emberhold', theme: 'volcanic', size: 120, nx: 350, ny: 620, difficulty: 3,
+    id: 2, name: 'Agnidurg', theme: 'volcanic', size: 120, nx: 350, ny: 620, difficulty: 3,
     features: [
       { kind: 'volcano', gx: -10, gy: -8 },
       { kind: 'rock', gx: 35, gy: 15 },
@@ -43,7 +43,7 @@ const ISLAND_DEFS: IslandDef[] = [
     ],
   },
   {
-    id: 3, name: 'Crown Keep', theme: 'forest', size: 130, nx: 720, ny: 540, difficulty: 4,
+    id: 3, name: 'Rajgarh', theme: 'forest', size: 130, nx: 720, ny: 540, difficulty: 4,
     features: [
       { kind: 'castle', gx: -10, gy: 0 },
       { kind: 'tree', gx: 50, gy: 18, variant: 'pine' },
@@ -52,7 +52,7 @@ const ISLAND_DEFS: IslandDef[] = [
     ],
   },
   {
-    id: 4, name: 'Palm Reach', theme: 'sand', size: 95, nx: 580, ny: 700, difficulty: 2,
+    id: 4, name: 'Narikelvan', theme: 'sand', size: 95, nx: 580, ny: 700, difficulty: 2,
     features: [
       { kind: 'tree', gx: -25, gy: 0, variant: 'palm' },
       { kind: 'tree', gx: 25, gy: 15, variant: 'palm' },
@@ -189,7 +189,7 @@ export class MapScene implements Scene {
 
     // Top compass + banner
     drawCompass(ctx, cx, 86, 38, true);
-    drawBanner(ctx, cx, 170, Math.min(420, w - 80), 50, 'Map of Valdor', 28);
+    drawBanner(ctx, cx, 170, Math.min(420, w - 80), 50, 'Map of Dweepa', 28);
 
     // Decorative ships and clouds (in normalized coords, then translated)
     const sx = (n: number) => this.mapOX + n * (this.mapW / 1000);
