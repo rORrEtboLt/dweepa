@@ -30,7 +30,8 @@ export class Input {
     canvas.addEventListener('touchmove', (e) => {
       const t = e.touches[0];
       if (t) this.handleMove(canvas, t);
-    }, { passive: true });
+      e.preventDefault();
+    }, { passive: false });
     canvas.addEventListener('touchend', () => {
       this.mouseDown = false;
     });

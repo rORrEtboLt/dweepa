@@ -199,6 +199,9 @@ export class BattleScene implements Scene {
   private gridH: number;
   private camX = 0;
   private camY = 0;
+  private battleScale = 1;
+  private pivotX = 0;
+  private pivotY = 0;
 
   private friendly: Combatant[] = [];
   private enemies: Combatant[] = [];
@@ -264,11 +267,24 @@ export class BattleScene implements Scene {
     return { x: (this.gridW - 1) / 2, y: (this.gridH - 1) / 2 };
   }
 
+  private hudBarH(game: Game): number {
+    return game.isNarrow && this.phase === 'place' ? 160 : 110;
+  }
+
   private layout(game: Game) {
     const c = this.gridCenter();
     const center = isoToScreen(c.x, c.y);
-    this.camX = game.width / 2 - center.x;
-    this.camY = game.height / 2 - center.y - 40;
+
+    const topArea = 80;
+    const bottomArea = game.isNarrow ? 160 : 110;
+    const availW = game.width - 20;
+    const availH = game.height - topArea - bottomArea;
+    this.battleScale = Math.min(1, availW / 480, availH / 260);
+
+    this.pivotX = game.width / 2;
+    this.pivotY = topArea + availH / 2;
+    this.camX = this.pivotX - center.x;
+    this.camY = this.pivotY - center.y;
   }
 
   private screenForTile(gx: number, gy: number, elev: number) {
@@ -299,26 +315,39 @@ export class BattleScene implements Scene {
     this.hoverSquad = null;
 
     // HUD button hit detection (positions match render below)
-    const bottomBar = game.height - 100;
+    const narrow = game.isNarrow;
+    const barH = this.hudBarH(game);
+    const bottomBar = game.height - barH;
     if (this.phase === 'place') {
-      if (buttonHit(mx, my, game.width - 220, bottomBar + 24, 180, 50)) this.hoverButton = 'begin';
-      // Squad tray
       const squads: UnitKind[] = ['knight', 'archer', 'pike'];
+      const cardW = narrow ? 86 : 100;
+      const cardH = narrow ? 58 : 70;
+      const cardGap = narrow ? 6 : 10;
+      const totalCardsW = squads.length * cardW + (squads.length - 1) * cardGap;
+      const cardsX = narrow ? (game.width - totalCardsW) / 2 : 24;
+      const cardsY = bottomBar + (narrow ? 10 : 16);
       for (let i = 0; i < squads.length; i++) {
-        if (buttonHit(mx, my, 24 + i * 110, bottomBar + 16, 100, 70)) {
+        if (buttonHit(mx, my, cardsX + i * (cardW + cardGap), cardsY, cardW, cardH)) {
           this.hoverSquad = squads[i];
         }
       }
+      const btnW = narrow ? Math.min(200, game.width - 48) : 180;
+      const btnH = narrow ? 44 : 50;
+      const btnX = narrow ? (game.width - btnW) / 2 : game.width - 220;
+      const btnY = narrow ? cardsY + cardH + 32 : bottomBar + 24;
+      if (buttonHit(mx, my, btnX, btnY, btnW, btnH)) this.hoverButton = 'begin';
     }
-    if (buttonHit(mx, my, 24, 24, 130, 40)) this.hoverButton = 'retreat';
+    if (buttonHit(mx, my, 24, 24, 130, 44)) this.hoverButton = 'retreat';
     if (this.phase === 'victory' || this.phase === 'defeat') {
       const bx = game.width / 2 - 110;
       const by = game.height / 2 + 50;
       if (buttonHit(mx, my, bx, by, 220, 56)) this.hoverButton = 'next';
     }
 
-    // Hover tile
-    this.hoverTile = this.tileAtScreen(mx, my);
+    // Hover tile (inverse-transform mouse through battle scale)
+    const imx = this.pivotX + (mx - this.pivotX) / this.battleScale;
+    const imy = this.pivotY + (my - this.pivotY) / this.battleScale;
+    this.hoverTile = this.tileAtScreen(imx, imy);
 
     if (game.input.clicked) {
       if (this.hoverButton === 'retreat') {
@@ -582,16 +611,24 @@ export class BattleScene implements Scene {
     // Sea background (parchment)
     drawParchmentBackground(ctx, w, h);
 
+    // Scaled context for island rendering
+    ctx.save();
+    ctx.translate(this.pivotX, this.pivotY);
+    ctx.scale(this.battleScale, this.battleScale);
+    ctx.translate(-this.pivotX, -this.pivotY);
+
     // Sea around the island
     this.drawSea(ctx, game);
 
-    // Decorative clouds and far ships
+    // Tiles, units, projectiles in iso depth order
+    this.drawIsland(ctx, game);
+
+    ctx.restore();
+
+    // Decorative clouds (screen space)
     for (const c of this.decorClouds) {
       drawCloud(ctx, c.nx * w, 80 + c.ny * 100, c.s);
     }
-
-    // Tiles, units, projectiles in iso depth order
-    this.drawIsland(ctx, game);
 
     // HUD
     this.drawHUD(ctx, game);
@@ -724,29 +761,41 @@ export class BattleScene implements Scene {
 
   private drawHUD(ctx: CanvasRenderingContext2D, game: Game) {
     const w = game.width, h = game.height;
+    const narrow = game.isNarrow;
 
     // Top banner: island name + wave info
     drawBanner(ctx, w / 2, 50, Math.min(420, w - 80), 44, this.blueprint.name, 24);
 
-    // Top right wave info
+    // Wave info (below banner on narrow, top-right on wide)
     const waveText = this.phase === 'place' ? 'Prepare your defenders' : `Wave ${Math.min(this.currentWave + 1, this.blueprint.waves.length)} / ${this.blueprint.waves.length}`;
-    inkText(ctx, waveText, w - 24, 30, 18, true, palette.ink, 'right');
-    inkText(ctx, `Foes remaining: ${this.enemies.length + this.remainingToSpawn()}`, w - 24, 54, 14, false, palette.inkLight, 'right');
+    if (narrow) {
+      inkText(ctx, waveText, w / 2, 84, 15, true, palette.ink);
+    } else {
+      inkText(ctx, waveText, w - 24, 30, 18, true, palette.ink, 'right');
+      inkText(ctx, `Foes remaining: ${this.enemies.length + this.remainingToSpawn()}`, w - 24, 54, 14, false, palette.inkLight, 'right');
+    }
 
     // Retreat / Back button
-    drawButton(ctx, 24, 24, 130, 40, '← Retreat', this.hoverButton === 'retreat');
+    drawButton(ctx, 24, 24, 130, 44, '← Retreat', this.hoverButton === 'retreat');
 
     // Bottom HUD bar (scroll panel)
-    const bottomY = h - 110;
-    drawScrollPanel(ctx, 0, bottomY, w, 110);
+    const barH = this.hudBarH(game);
+    const bottomY = h - barH;
+    drawScrollPanel(ctx, 0, bottomY, w, barH);
 
     if (this.phase === 'place') {
-      // Squad tray
       const squads: UnitKind[] = ['knight', 'archer', 'pike'];
+      const cardW = narrow ? 86 : 100;
+      const cardH = narrow ? 58 : 70;
+      const cardGap = narrow ? 6 : 10;
+      const totalCardsW = squads.length * cardW + (squads.length - 1) * cardGap;
+      const cardsX = narrow ? (w - totalCardsW) / 2 : 24;
+      const cardsY = bottomY + (narrow ? 10 : 16);
+
       for (let i = 0; i < squads.length; i++) {
         const k = squads[i];
-        const x = 24 + i * 110;
-        const y = bottomY + 16;
+        const x = cardsX + i * (cardW + cardGap);
+        const y = cardsY;
         const selected = this.selectedSquad === k;
         const hover = this.hoverSquad === k;
         ctx.save();
@@ -754,35 +803,61 @@ export class BattleScene implements Scene {
         ctx.strokeStyle = selected ? palette.accent : palette.ink;
         ctx.lineWidth = selected ? 2.5 : 1.5;
         ctx.beginPath();
-        ctx.rect(x, y, 100, 70);
+        ctx.rect(x, y, cardW, cardH);
         ctx.fill();
         ctx.stroke();
         if (hover && !selected) {
           ctx.globalAlpha = 0.18;
           ctx.fillStyle = '#fff5c8';
-          ctx.fillRect(x, y, 100, 70);
+          ctx.fillRect(x, y, cardW, cardH);
           ctx.globalAlpha = 1;
         }
         ctx.restore();
-        drawUnit(ctx, x + 28, y + 50, k, 1, game.time);
+        const unitScale = narrow ? 0.85 : 1;
+        const unitX = x + (narrow ? 22 : 28);
+        const unitY = y + (narrow ? 42 : 50);
+        ctx.save();
+        ctx.translate(unitX, unitY);
+        ctx.scale(unitScale, unitScale);
+        ctx.translate(-unitX, -unitY);
+        drawUnit(ctx, unitX, unitY, k, 1, game.time);
+        ctx.restore();
         const def = UNIT_DEFS[k];
-        inkText(ctx, def.label!, x + 64, y + 22, 13, true, palette.ink, 'left');
-        inkText(ctx, `HP ${def.hp}`, x + 64, y + 38, 11, false, palette.inkLight, 'left');
-        inkText(ctx, `ATK ${def.attack}`, x + 64, y + 52, 11, false, palette.inkLight, 'left');
+        const labelX = x + (narrow ? 50 : 64);
+        const labelSz = narrow ? 11 : 13;
+        const statSz = narrow ? 10 : 11;
+        inkText(ctx, def.label!, labelX, y + (narrow ? 18 : 22), labelSz, true, palette.ink, 'left');
+        inkText(ctx, `HP ${def.hp}`, labelX, y + (narrow ? 30 : 38), statSz, false, palette.inkLight, 'left');
+        inkText(ctx, `ATK ${def.attack}`, labelX, y + (narrow ? 42 : 52), statSz, false, palette.inkLight, 'left');
       }
 
-      inkText(ctx, `Squads left: ${this.squadsLeft}`, w / 2, bottomY + 30, 18, true, palette.ink);
-      inkText(ctx, this.selectedSquad ? `Click a tile to deploy ${UNIT_DEFS[this.selectedSquad].label}` : 'Pick a squad', w / 2, bottomY + 56, 14, false, palette.inkLight);
-      drawFlourish(ctx, w / 2, bottomY + 78, 220);
-
-      // Begin button
-      drawButton(ctx, w - 220, bottomY + 24, 180, 50, 'Begin Battle ⚔', this.hoverButton === 'begin', this.friendly.length === 0);
+      if (narrow) {
+        // Two-row layout: cards on top, status + button below
+        inkText(ctx, `Squads: ${this.squadsLeft}`, w / 2, cardsY + cardH + 14, 15, true, palette.ink);
+        const btnW = Math.min(200, w - 48);
+        const btnH = 44;
+        const btnX = (w - btnW) / 2;
+        const btnY = cardsY + cardH + 32;
+        drawButton(ctx, btnX, btnY, btnW, btnH, 'Begin Battle ⚔', this.hoverButton === 'begin', this.friendly.length === 0);
+      } else {
+        inkText(ctx, `Squads left: ${this.squadsLeft}`, w / 2, bottomY + 30, 18, true, palette.ink);
+        const deployText = this.selectedSquad ? `Click a tile to deploy ${UNIT_DEFS[this.selectedSquad].label}` : 'Pick a squad';
+        inkText(ctx, deployText, w / 2, bottomY + 56, 14, false, palette.inkLight);
+        drawFlourish(ctx, w / 2, bottomY + 78, 220);
+        drawButton(ctx, w - 220, bottomY + 24, 180, 50, 'Begin Battle ⚔', this.hoverButton === 'begin', this.friendly.length === 0);
+      }
     } else {
       // Battle status
-      inkText(ctx, `Defenders: ${this.friendly.length}`, 40, bottomY + 30, 18, true, palette.ink, 'left');
-      inkText(ctx, `Raiders: ${this.enemies.length + this.remainingToSpawn()}`, 40, bottomY + 56, 16, false, palette.inkLight, 'left');
-      inkText(ctx, `Hold the line, defender.`, w / 2, bottomY + 40, 18, false, palette.inkSoft);
-      drawFlourish(ctx, w / 2, bottomY + 64, 220);
+      if (narrow) {
+        inkText(ctx, `Defenders: ${this.friendly.length}  ·  Raiders: ${this.enemies.length + this.remainingToSpawn()}`, w / 2, bottomY + 34, 16, true, palette.ink);
+        inkText(ctx, 'Hold the line!', w / 2, bottomY + 58, 15, false, palette.inkSoft);
+        drawFlourish(ctx, w / 2, bottomY + 78, Math.min(220, w - 60));
+      } else {
+        inkText(ctx, `Defenders: ${this.friendly.length}`, 40, bottomY + 30, 18, true, palette.ink, 'left');
+        inkText(ctx, `Raiders: ${this.enemies.length + this.remainingToSpawn()}`, 40, bottomY + 56, 16, false, palette.inkLight, 'left');
+        inkText(ctx, `Hold the line, defender.`, w / 2, bottomY + 40, 18, false, palette.inkSoft);
+        drawFlourish(ctx, w / 2, bottomY + 64, 220);
+      }
     }
   }
 
