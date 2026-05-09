@@ -1,14 +1,16 @@
 import { palette, setSeed, rand, jitter, pathWobbly, fillStrokeWobbly, inkText } from './hand';
 
 let bgCache: HTMLCanvasElement | null = null;
-let bgW = 0, bgH = 0;
+let bgW = 0, bgH = 0, bgDpr = 0;
 
 export function drawParchmentBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  if (!bgCache || bgW !== w || bgH !== h) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (!bgCache || bgW !== w || bgH !== h || bgDpr !== dpr) {
     bgCache = document.createElement('canvas');
-    bgCache.width = w;
-    bgCache.height = h;
+    bgCache.width = Math.floor(w * dpr);
+    bgCache.height = Math.floor(h * dpr);
     const c = bgCache.getContext('2d')!;
+    c.scale(dpr, dpr);
 
     const grad = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) / 1.1);
     grad.addColorStop(0, '#f6e8c2');
@@ -61,8 +63,12 @@ export function drawParchmentBackground(ctx: CanvasRenderingContext2D, w: number
 
     bgW = w;
     bgH = h;
+    bgDpr = dpr;
   }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(bgCache, 0, 0);
+  ctx.restore();
 }
 
 export function drawBanner(

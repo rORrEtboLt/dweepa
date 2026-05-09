@@ -145,6 +145,15 @@ export class MapScene implements Scene {
     const bw = 140, bh = 44;
     this.hoverButton = buttonHit(mx, my, 24, 24, bw, bh);
 
+    if (this.hoverButton || (this.hoverIsland !== null && game.unlockedIslands.has(this.hoverIsland))) {
+      game.setCursor('pointer');
+    }
+
+    if (game.input.wasPressed('Escape')) {
+      game.goto('title');
+      return;
+    }
+
     if (game.input.clicked) {
       if (this.hoverButton) {
         game.goto('title');
