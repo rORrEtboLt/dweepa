@@ -57,7 +57,7 @@ export class TitleScene implements Scene {
 
     // Big banner
     const titleW = Math.min(640, w - 80);
-    drawBanner(ctx, cx, cy - 80, titleW, 70, 'ISLES OF VALDOR', 36);
+    drawBanner(ctx, cx, cy - 80, titleW, 70, 'DWEEPA', 36);
 
     // Subtitle
     inkText(ctx, 'A Tale of Tides and Steel', cx, cy - 30, 22, false, palette.inkLight);
