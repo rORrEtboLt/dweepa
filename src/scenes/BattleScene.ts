@@ -29,9 +29,9 @@ interface UnitDef {
 }
 
 const UNIT_DEFS: Record<UnitKind, UnitDef> = {
-  knight: { kind: 'knight', hp: 70, attack: 18, range: 1.1, cooldown: 0.9, speed: 1.4, friendly: true, cost: 1, label: 'Knight' },
+  knight: { kind: 'knight', hp: 70, attack: 18, range: 1.1, cooldown: 0.9, speed: 1.4, friendly: true, cost: 1, label: 'Sainapathi' },
   archer: { kind: 'archer', hp: 35, attack: 9, range: 3.4, cooldown: 0.8, speed: 1.2, friendly: true, cost: 1, label: 'Archer' },
-  pike: { kind: 'pike', hp: 50, attack: 14, range: 1.5, cooldown: 1.1, speed: 1.2, friendly: true, cost: 1, label: 'Pikeman' },
+  pike: { kind: 'pike', hp: 50, attack: 14, range: 1.5, cooldown: 1.1, speed: 1.2, friendly: true, cost: 1, label: 'Sainika' },
   raider: { kind: 'raider', hp: 35, attack: 8, range: 1.0, cooldown: 1.0, speed: 1.5, friendly: false },
   brute: { kind: 'brute', hp: 55, attack: 12, range: 1.2, cooldown: 1.3, speed: 0.9, friendly: false },
   scout: { kind: 'scout', hp: 20, attack: 6, range: 1.0, cooldown: 0.6, speed: 2.2, friendly: false },
@@ -1067,7 +1067,7 @@ export class BattleScene implements Scene {
     const cx = game.width / 2, cy = game.height / 2;
     const won = this.phase === 'victory';
     drawBanner(ctx, cx, cy - 60, Math.min(620, game.width - 80), 80, won ? 'Victory!' : 'The Shore is Lost', 38);
-    inkText(ctx, won ? 'The raiders are repelled. Word reaches the next isle.' : 'Your defenders have fallen. Try again, brave knight.', cx, cy + 10, 18, false, palette.parchmentLight);
+    inkText(ctx, won ? 'The raiders are repelled. Word reaches the next isle.' : 'Your defenders have fallen. Try again, brave Sainapathi.', cx, cy + 10, 18, false, palette.parchmentLight);
     drawButton(ctx, cx - 110, cy + 50, 220, 56, won ? 'Continue ▸' : 'Return to Map', this.hoverButton === 'next');
   }
 }
