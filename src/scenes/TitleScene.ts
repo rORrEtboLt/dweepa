@@ -76,7 +76,7 @@ export class TitleScene implements Scene {
     drawButton(ctx, cx - bw / 2, cy + 110 + bh + 16, bw, bh, 'How to Defend', this.hover === 'about');
 
     // Footer
-    const footerText = game.isNarrow ? 'The Adventure Continues' : 'Every Day, Every Knight  ·  The Adventure Continues';
+    const footerText = game.isNarrow ? 'The Adventure Continues' : 'Every Day, Every Sainapathi  ·  The Adventure Continues';
     inkText(ctx, footerText, cx, h - 36, 14, false, palette.inkSoft);
 
     // Help overlay
@@ -98,7 +98,7 @@ export class TitleScene implements Scene {
       let ty = py + 70;
       const lines = [
         'Choose your island on the world map.',
-        'Select a unit type: Knight, Archer, or Pikeman.',
+        'Select a unit type: Sainapathi, Archer, or Sainika.',
         `${narrow ? 'Tap' : 'Click'} walkable tiles to place defenders.`,
         `${narrow ? 'Long-press' : 'Right-click'} a placed unit to remove it.`,
         'Press "Begin Battle" when ready.',
