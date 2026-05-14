@@ -1,7 +1,7 @@
 import { Game, Scene } from '../Game';
 import { palette, inkText, setSeed, rand } from '../render/hand';
 import { drawParchmentBackground, drawBanner, drawButton, drawScrollPanel, buttonHit, drawFlourish } from '../render/parchment';
-import { TILE_W, TILE_H, isoToScreen } from '../render/iso';
+import { TILE_W, TILE_H, TILE_RISE, isoToScreen } from '../render/iso';
 import {
   drawBattleTile, drawUnit, drawHpBar, drawSeaPattern, drawShip, drawCloud,
   drawImpactSparks, drawArrowImpact,
@@ -29,12 +29,42 @@ interface UnitDef {
 }
 
 const UNIT_DEFS: Record<UnitKind, UnitDef> = {
-  knight: { kind: 'knight', hp: 70, attack: 18, range: 1.1, cooldown: 0.9, speed: 1.4, friendly: true, cost: 1, label: 'Sainapathi' },
-  archer: { kind: 'archer', hp: 35, attack: 9, range: 3.4, cooldown: 0.8, speed: 1.2, friendly: true, cost: 1, label: 'Archer' },
-  pike: { kind: 'pike', hp: 50, attack: 14, range: 1.5, cooldown: 1.1, speed: 1.2, friendly: true, cost: 1, label: 'Sainika' },
-  raider: { kind: 'raider', hp: 35, attack: 8, range: 1.0, cooldown: 1.0, speed: 1.5, friendly: false },
-  brute: { kind: 'brute', hp: 55, attack: 12, range: 1.2, cooldown: 1.3, speed: 0.9, friendly: false },
-  scout: { kind: 'scout', hp: 20, attack: 6, range: 1.0, cooldown: 0.6, speed: 2.2, friendly: false },
+  knight: { kind: 'knight', hp: 10, attack: 4, range: 1.1, cooldown: 0.9, speed: 1.4, friendly: true, cost: 1, label: 'Sainapathi' },
+  archer: { kind: 'archer', hp: 6, attack: 2, range: 3.4, cooldown: 0.8, speed: 1.2, friendly: true, cost: 1, label: 'Archer' },
+  pike: { kind: 'pike', hp: 8, attack: 3, range: 1.5, cooldown: 1.1, speed: 1.2, friendly: true, cost: 1, label: 'Sainika' },
+  raider: { kind: 'raider', hp: 6, attack: 2, range: 1.0, cooldown: 1.0, speed: 1.5, friendly: false },
+  brute: { kind: 'brute', hp: 9, attack: 3, range: 1.2, cooldown: 1.3, speed: 0.9, friendly: false },
+  scout: { kind: 'scout', hp: 4, attack: 2, range: 1.0, cooldown: 0.6, speed: 2.2, friendly: false },
+};
+
+const SQUAD_SIZE = 8;
+const MEMBER_SCALE = 0.42;
+
+const SQUAD_FORMATIONS: Record<UnitKind, { dx: number; dy: number }[]> = {
+  knight: [
+    { dx: -0.28, dy: -0.18 }, { dx: -0.09, dy: -0.18 }, { dx: 0.09, dy: -0.18 }, { dx: 0.28, dy: -0.18 },
+    { dx: -0.28, dy: 0.08 }, { dx: -0.09, dy: 0.08 }, { dx: 0.09, dy: 0.08 }, { dx: 0.28, dy: 0.08 },
+  ],
+  archer: [
+    { dx: -0.32, dy: -0.12 }, { dx: -0.11, dy: -0.12 }, { dx: 0.11, dy: -0.12 }, { dx: 0.32, dy: -0.12 },
+    { dx: -0.32, dy: 0.12 }, { dx: -0.11, dy: 0.12 }, { dx: 0.11, dy: 0.12 }, { dx: 0.32, dy: 0.12 },
+  ],
+  pike: [
+    { dx: -0.3, dy: -0.2 }, { dx: -0.1, dy: -0.2 }, { dx: 0.1, dy: -0.2 }, { dx: 0.3, dy: -0.2 },
+    { dx: -0.3, dy: 0.06 }, { dx: -0.1, dy: 0.06 }, { dx: 0.1, dy: 0.06 }, { dx: 0.3, dy: 0.06 },
+  ],
+  raider: [
+    { dx: -0.28, dy: -0.16 }, { dx: -0.09, dy: -0.2 }, { dx: 0.09, dy: -0.16 }, { dx: 0.28, dy: -0.2 },
+    { dx: -0.28, dy: 0.1 }, { dx: -0.09, dy: 0.06 }, { dx: 0.09, dy: 0.1 }, { dx: 0.28, dy: 0.06 },
+  ],
+  brute: [
+    { dx: -0.26, dy: -0.18 }, { dx: -0.09, dy: -0.22 }, { dx: 0.09, dy: -0.22 }, { dx: 0.26, dy: -0.18 },
+    { dx: -0.26, dy: 0.06 }, { dx: -0.09, dy: 0.02 }, { dx: 0.09, dy: 0.02 }, { dx: 0.26, dy: 0.06 },
+  ],
+  scout: [
+    { dx: -0.34, dy: -0.16 }, { dx: -0.12, dy: -0.16 }, { dx: 0.12, dy: -0.16 }, { dx: 0.34, dy: -0.16 },
+    { dx: -0.34, dy: 0.12 }, { dx: -0.12, dy: 0.12 }, { dx: 0.12, dy: 0.12 }, { dx: 0.34, dy: 0.12 },
+  ],
 };
 
 interface Combatant {
@@ -53,6 +83,7 @@ interface Combatant {
   animTimer: number;
   animDuration: number;
   walking: boolean;
+  squadId: number;
 }
 
 interface Particle {
@@ -113,8 +144,8 @@ const ISLAND_BLUEPRINTS: Record<number, {
     spawnEdges: ['N','S','E','W'],
     squads: 4,
     waves: [
-      { count: 4, delay: 1.5, spawnInterval: 0.7 },
-      { count: 6, delay: 4, spawnInterval: 0.6 },
+      { count: 3, delay: 1.5, spawnInterval: 2.5 },
+      { count: 4, delay: 4, spawnInterval: 2.0 },
     ],
   },
   1: {
@@ -132,9 +163,9 @@ const ISLAND_BLUEPRINTS: Record<number, {
     spawnEdges: ['N','S','E','W'],
     squads: 5,
     waves: [
-      { count: 5, delay: 1.5, spawnInterval: 0.6 },
-      { count: 7, delay: 4, spawnInterval: 0.55 },
-      { count: 8, delay: 5, spawnInterval: 0.5 },
+      { count: 3, delay: 1.5, spawnInterval: 2.5 },
+      { count: 4, delay: 4, spawnInterval: 2.0 },
+      { count: 5, delay: 5, spawnInterval: 1.8 },
     ],
   },
   2: {
@@ -152,9 +183,9 @@ const ISLAND_BLUEPRINTS: Record<number, {
     spawnEdges: ['N','S','E','W'],
     squads: 5,
     waves: [
-      { count: 6, delay: 1.5, spawnInterval: 0.55 },
-      { count: 8, delay: 4, spawnInterval: 0.5, enemies: ['raider', 'raider', 'raider', 'scout'] },
-      { count: 10, delay: 5, spawnInterval: 0.45, enemies: ['raider', 'raider', 'scout', 'brute'] },
+      { count: 4, delay: 1.5, spawnInterval: 2.2 },
+      { count: 5, delay: 4, spawnInterval: 2.0, enemies: ['raider', 'raider', 'raider', 'scout'] },
+      { count: 6, delay: 5, spawnInterval: 1.8, enemies: ['raider', 'raider', 'scout', 'brute'] },
     ],
   },
   3: {
@@ -172,9 +203,9 @@ const ISLAND_BLUEPRINTS: Record<number, {
     spawnEdges: ['N','S','E','W'],
     squads: 6,
     waves: [
-      { count: 7, delay: 1.5, spawnInterval: 0.5, enemies: ['raider', 'raider', 'scout'] },
-      { count: 9, delay: 4, spawnInterval: 0.45, enemies: ['raider', 'brute', 'scout', 'raider'] },
-      { count: 12, delay: 5, spawnInterval: 0.4, enemies: ['raider', 'brute', 'scout', 'brute', 'raider'] },
+      { count: 4, delay: 1.5, spawnInterval: 2.0, enemies: ['raider', 'raider', 'scout'] },
+      { count: 6, delay: 4, spawnInterval: 1.8, enemies: ['raider', 'brute', 'scout', 'raider'] },
+      { count: 7, delay: 5, spawnInterval: 1.5, enemies: ['raider', 'brute', 'scout', 'brute', 'raider'] },
     ],
   },
   4: {
@@ -192,18 +223,18 @@ const ISLAND_BLUEPRINTS: Record<number, {
     spawnEdges: ['N','S','E','W'],
     squads: 4,
     waves: [
-      { count: 5, delay: 1.5, spawnInterval: 0.6 },
-      { count: 8, delay: 4, spawnInterval: 0.5 },
+      { count: 3, delay: 1.5, spawnInterval: 2.5 },
+      { count: 5, delay: 4, spawnInterval: 2.0 },
     ],
   },
 };
 
 const TILE_COLORS: Record<Tile['kind'], TileColors> = {
   sea: { top: palette.water, cliff: palette.waterDark, cliffDark: palette.waterDark },
-  beach: { top: palette.sand, cliff: '#a87850', cliffDark: '#6e4e30' },
-  grass: { top: palette.grass, cliff: palette.cliff, cliffDark: palette.cliffDark },
-  stone: { top: palette.stone, cliff: palette.stoneDark, cliffDark: '#48433a' },
-  volcanic: { top: '#7a6258', cliff: '#5a4438', cliffDark: '#3a2a20' },
+  beach: { top: '#ddd0a8', cliff: '#e8dcc8', cliffDark: '#c8b8a0' },
+  grass: { top: '#8ab860', cliff: '#e8e0d0', cliffDark: '#c8c0b0' },
+  stone: { top: '#b0a898', cliff: '#e0d8cc', cliffDark: '#c0b8a8' },
+  volcanic: { top: '#8a7060', cliff: '#d8ccc0', cliffDark: '#b0a498' },
 };
 
 let _id = 1;
@@ -298,7 +329,7 @@ export class BattleScene implements Scene {
     const bottomArea = game.isNarrow ? 160 : 110;
     const availW = game.width - 20;
     const availH = game.height - topArea - bottomArea;
-    this.battleScale = Math.min(1, availW / 480, availH / 260);
+    this.battleScale = Math.min(1, availW / 480, availH / 340);
 
     this.pivotX = game.width / 2;
     this.pivotY = topArea + availH / 2;
@@ -308,7 +339,7 @@ export class BattleScene implements Scene {
 
   private screenForTile(gx: number, gy: number, elev: number) {
     const p = isoToScreen(gx, gy, 0);
-    return { x: p.x + this.camX, y: p.y + this.camY - elev * 14 };
+    return { x: p.x + this.camX, y: p.y + this.camY - elev * TILE_RISE };
   }
 
   private tileAtScreen(sx: number, sy: number): Tile | null {
@@ -428,36 +459,42 @@ export class BattleScene implements Scene {
           this.selectedSquad = this.hoverSquad;
           return;
         }
-        // Place selected squad on tile
+        // Place selected squad on tile (creates SQUAD_SIZE members in formation)
         if (this.hoverTile && this.selectedSquad && this.squadsLeft > 0 && this.canPlaceOn(this.hoverTile)) {
           const def = UNIT_DEFS[this.selectedSquad];
-          this.friendly.push({
-            id: _id++,
-            def,
-            hp: def.hp,
-            x: this.hoverTile.gx,
-            y: this.hoverTile.gy,
-            tx: this.hoverTile.gx,
-            ty: this.hoverTile.gy,
-            facing: 1,
-            cooldown: 0,
-            hitFlash: 0,
-            dead: false,
-            animState: 'idle',
-            animTimer: 0,
-            animDuration: 0,
-            walking: false,
-          });
+          const formation = SQUAD_FORMATIONS[this.selectedSquad]!;
+          const squadId = _id++;
+          for (const off of formation) {
+            this.friendly.push({
+              id: _id++,
+              def,
+              hp: def.hp,
+              x: this.hoverTile.gx + off.dx,
+              y: this.hoverTile.gy + off.dy,
+              tx: this.hoverTile.gx,
+              ty: this.hoverTile.gy,
+              facing: 1,
+              cooldown: Math.random() * def.cooldown * 0.3,
+              hitFlash: 0,
+              dead: false,
+              animState: 'idle',
+              animTimer: 0,
+              animDuration: 0,
+              walking: false,
+              squadId,
+            });
+          }
           this.squadsLeft--;
         }
       }
     }
 
-    // Right-click to remove placed unit during placement
+    // Right-click to remove placed squad during placement
     if (game.input.rightClicked && this.phase === 'place' && this.hoverTile) {
-      const idx = this.friendly.findIndex(u => u.tx === this.hoverTile!.gx && u.ty === this.hoverTile!.gy);
-      if (idx >= 0) {
-        this.friendly.splice(idx, 1);
+      const member = this.friendly.find(u => u.tx === this.hoverTile!.gx && u.ty === this.hoverTile!.gy);
+      if (member) {
+        const sid = member.squadId;
+        this.friendly = this.friendly.filter(u => u.squadId !== sid);
         this.squadsLeft++;
       }
     }
@@ -515,23 +552,28 @@ export class BattleScene implements Scene {
     const e = edges[Math.floor(Math.random() * edges.length)];
     const kind = enemyKind ?? 'raider';
     const def = UNIT_DEFS[kind];
-    this.enemies.push({
-      id: _id++,
-      def,
-      hp: def.hp,
-      x: e.gx,
-      y: e.gy,
-      tx: 0,
-      ty: 0,
-      facing: 1,
-      cooldown: 0,
-      hitFlash: 0,
-      dead: false,
-      animState: 'walk',
-      animTimer: 0,
-      animDuration: 0,
-      walking: true,
-    });
+    const formation = SQUAD_FORMATIONS[kind];
+    const squadId = _id++;
+    for (const off of formation) {
+      this.enemies.push({
+        id: _id++,
+        def,
+        hp: def.hp,
+        x: e.gx + off.dx,
+        y: e.gy + off.dy,
+        tx: 0,
+        ty: 0,
+        facing: 1,
+        cooldown: Math.random() * def.cooldown * 0.3,
+        hitFlash: 0,
+        dead: false,
+        animState: 'walk',
+        animTimer: 0,
+        animDuration: 0,
+        walking: true,
+        squadId,
+      });
+    }
   }
 
   private tickBattle(dt: number) {
@@ -825,6 +867,25 @@ export class BattleScene implements Scene {
     }
     order.sort((a, b) => (a.gx + a.gy) - (b.gx + b.gy));
 
+    // Pass 0: drop shadow underneath the island
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = '#1a1208';
+    ctx.beginPath();
+    const shadowOx = 10, shadowOy = 16;
+    for (const { gx, gy } of order) {
+      const t = this.tiles[gy][gx];
+      if (t.kind === 'sea') continue;
+      const p = this.screenForTile(gx, gy, 0);
+      ctx.moveTo(p.x + shadowOx, p.y - TILE_H / 2 + shadowOy);
+      ctx.lineTo(p.x + TILE_W / 2 + shadowOx, p.y + shadowOy);
+      ctx.lineTo(p.x + shadowOx, p.y + TILE_H / 2 + shadowOy);
+      ctx.lineTo(p.x - TILE_W / 2 + shadowOx, p.y + shadowOy);
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.restore();
+
     // Pass 1: draw tiles
     for (const { gx, gy } of order) {
       const t = this.tiles[gy][gx];
@@ -852,15 +913,15 @@ export class BattleScene implements Scene {
       renderables.push({
         y: sortKey,
         draw: () => {
+          ctx.save();
           if (u.hitFlash > 0) {
-            ctx.save();
             ctx.globalCompositeOperation = 'lighter';
           }
+          ctx.translate(p.x, p.y - 4);
+          ctx.scale(MEMBER_SCALE, MEMBER_SCALE);
+          ctx.translate(-p.x, -(p.y - 4));
           drawUnit(ctx, p.x, p.y - 4, u.def.kind, u.facing, game.time + u.id, u.animState, animProgress);
-          if (u.hitFlash > 0) ctx.restore();
-          if (u.animState !== 'dying') {
-            drawHpBar(ctx, p.x, p.y - 32, friendly ? 18 : 16, u.hp / u.def.hp, friendly);
-          }
+          ctx.restore();
         },
       });
     };
@@ -871,6 +932,33 @@ export class BattleScene implements Scene {
 
     renderables.sort((a, b) => a.y - b.y);
     for (const r of renderables) r.draw();
+
+    // Squad-level HP bars for all squads
+    const squadHp = new Map<number, { totalHp: number; totalMax: number; cx: number; cy: number; count: number; friendly: boolean }>();
+    const collectSquadHp = (units: Combatant[], friendly: boolean) => {
+      for (const u of units) {
+        const existing = squadHp.get(u.squadId);
+        if (existing) {
+          existing.totalHp += u.hp;
+          existing.cx += u.x;
+          existing.cy += u.y;
+          existing.count++;
+        } else {
+          squadHp.set(u.squadId, { totalHp: u.hp, totalMax: SQUAD_SIZE * u.def.hp, cx: u.x, cy: u.y, count: 1, friendly });
+        }
+      }
+    };
+    collectSquadHp(this.friendly, true);
+    collectSquadHp(this.enemies, false);
+    for (const [, sq] of squadHp) {
+      const avgX = sq.cx / sq.count;
+      const avgY = sq.cy / sq.count;
+      const gy = Math.max(0, Math.min(this.gridH - 1, Math.round(avgY)));
+      const gx = Math.max(0, Math.min(this.gridW - 1, Math.round(avgX)));
+      const elev = this.tiles[gy]?.[gx]?.elev ?? 0;
+      const p = this.screenForTile(avgX, avgY, elev);
+      drawHpBar(ctx, p.x, p.y - 18, 20, sq.totalHp / sq.totalMax, sq.friendly);
+    }
 
     // Particles (melee sparks, arrow impacts)
     for (const part of this.particles) {
@@ -982,22 +1070,28 @@ export class BattleScene implements Scene {
           ctx.globalAlpha = 1;
         }
         ctx.restore();
-        const unitScale = narrow ? 0.85 : 1;
-        const unitX = x + (narrow ? 22 : 28);
-        const unitY = y + (narrow ? 42 : 50);
-        ctx.save();
-        ctx.translate(unitX, unitY);
-        ctx.scale(unitScale, unitScale);
-        ctx.translate(-unitX, -unitY);
-        drawUnit(ctx, unitX, unitY, k, 1, game.time);
-        ctx.restore();
+        // Draw mini formation preview on card
+        const formationPreview = SQUAD_FORMATIONS[k];
+        const unitScale = narrow ? 0.24 : 0.28;
+        const unitCX = x + (narrow ? 22 : 28);
+        const unitCY = y + (narrow ? 36 : 42);
+        for (const off of formationPreview) {
+          const ux = unitCX + off.dx * (narrow ? 36 : 44);
+          const uy = unitCY + off.dy * (narrow ? 36 : 44);
+          ctx.save();
+          ctx.translate(ux, uy);
+          ctx.scale(unitScale, unitScale);
+          ctx.translate(-ux, -uy);
+          drawUnit(ctx, ux, uy, k, 1, game.time);
+          ctx.restore();
+        }
         const def = UNIT_DEFS[k];
         const labelX = x + (narrow ? 50 : 64);
         const labelSz = narrow ? 11 : 13;
         const statSz = narrow ? 10 : 11;
-        inkText(ctx, def.label!, labelX, y + (narrow ? 18 : 22), labelSz, true, palette.ink, 'left');
-        inkText(ctx, `HP ${def.hp}`, labelX, y + (narrow ? 30 : 38), statSz, false, palette.inkLight, 'left');
-        inkText(ctx, `ATK ${def.attack}`, labelX, y + (narrow ? 42 : 52), statSz, false, palette.inkLight, 'left');
+        inkText(ctx, `${def.label!} ×${SQUAD_SIZE}`, labelX, y + (narrow ? 18 : 22), labelSz, true, palette.ink, 'left');
+        inkText(ctx, `HP ${def.hp * SQUAD_SIZE}`, labelX, y + (narrow ? 30 : 38), statSz, false, palette.inkLight, 'left');
+        inkText(ctx, `ATK ${def.attack * SQUAD_SIZE}`, labelX, y + (narrow ? 42 : 52), statSz, false, palette.inkLight, 'left');
       }
 
       if (narrow) {
@@ -1017,12 +1111,13 @@ export class BattleScene implements Scene {
       }
     } else {
       // Battle status
+      const squadCount = new Set(this.friendly.map(u => u.squadId)).size;
       if (narrow) {
-        inkText(ctx, `Defenders: ${this.friendly.length}  ·  Raiders: ${this.enemies.length + this.remainingToSpawn()}`, w / 2, bottomY + 34, 16, true, palette.ink);
+        inkText(ctx, `${squadCount} Squads (${this.friendly.length} troops)  ·  Raiders: ${this.enemies.length + this.remainingToSpawn()}`, w / 2, bottomY + 34, 16, true, palette.ink);
         inkText(ctx, 'Hold the line!', w / 2, bottomY + 58, 15, false, palette.inkSoft);
         drawFlourish(ctx, w / 2, bottomY + 78, Math.min(220, w - 60));
       } else {
-        inkText(ctx, `Defenders: ${this.friendly.length}`, 40, bottomY + 30, 18, true, palette.ink, 'left');
+        inkText(ctx, `${squadCount} Squads · ${this.friendly.length} troops`, 40, bottomY + 30, 18, true, palette.ink, 'left');
         inkText(ctx, `Raiders: ${this.enemies.length + this.remainingToSpawn()}`, 40, bottomY + 56, 16, false, palette.inkLight, 'left');
         inkText(ctx, `Hold the line, defender.`, w / 2, bottomY + 40, 18, false, palette.inkSoft);
         drawFlourish(ctx, w / 2, bottomY + 64, 220);
@@ -1036,7 +1131,7 @@ export class BattleScene implements Scene {
       for (let i = this.currentWave; i < this.blueprint.waves.length; i++) {
         total += this.blueprint.waves[i].count;
       }
-      return total;
+      return total * SQUAD_SIZE;
     }
     if (this.phase === 'battle') {
       let total = 0;
@@ -1045,7 +1140,7 @@ export class BattleScene implements Scene {
       for (let i = this.currentWave + 1; i < this.blueprint.waves.length; i++) {
         total += this.blueprint.waves[i].count;
       }
-      return total;
+      return total * SQUAD_SIZE;
     }
     return 0;
   }

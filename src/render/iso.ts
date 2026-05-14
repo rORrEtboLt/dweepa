@@ -1,6 +1,6 @@
 export const TILE_W = 64;
 export const TILE_H = 32;
-export const TILE_RISE = 14;
+export const TILE_RISE = 24;
 
 export interface IsoOpts {
   tileW?: number;
