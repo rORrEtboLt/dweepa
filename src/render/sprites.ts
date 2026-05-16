@@ -1,5 +1,5 @@
 import { palette, setSeed, rand, jitter, pathWobbly, fillStrokeWobbly, shadeColor } from './hand';
-import { TILE_W, TILE_H, isoToScreen } from './iso';
+import { TILE_W, TILE_H, TILE_RISE, isoToScreen } from './iso';
 
 export type IslandTheme = 'grass' | 'sand' | 'volcanic' | 'mountain' | 'forest';
 
@@ -1035,6 +1035,8 @@ export interface TileColors {
   cliffDark: string;
 }
 
+export const TILE_BASE_DEPTH = 45;
+
 export function drawBattleTile(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number,
@@ -1045,34 +1047,36 @@ export function drawBattleTile(
 ) {
   const w = TILE_W;
   const h = TILE_H;
-  const baseY = cy - elev * 14;
+  const baseY = cy - elev * TILE_RISE;
+  const totalDepth = TILE_BASE_DEPTH + elev * TILE_RISE;
 
-  // Cliff sides
-  if (elev > 0) {
-    const sideH = elev * 14;
-    // Right face
-    ctx.beginPath();
-    ctx.moveTo(cx + w / 2, baseY);
-    ctx.lineTo(cx, baseY + h / 2);
-    ctx.lineTo(cx, baseY + h / 2 + sideH);
-    ctx.lineTo(cx + w / 2, baseY + sideH);
-    ctx.closePath();
-    ctx.fillStyle = colors.cliffDark;
-    ctx.fill();
-    ctx.strokeStyle = palette.ink;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    // Left face
-    ctx.beginPath();
-    ctx.moveTo(cx - w / 2, baseY);
-    ctx.lineTo(cx, baseY + h / 2);
-    ctx.lineTo(cx, baseY + h / 2 + sideH);
-    ctx.lineTo(cx - w / 2, baseY + sideH);
-    ctx.closePath();
-    ctx.fillStyle = colors.cliff;
-    ctx.fill();
-    ctx.stroke();
-  }
+  // Cliff sides (all land tiles get base depth)
+  // Right face (shadow side)
+  ctx.beginPath();
+  ctx.moveTo(cx + w / 2, baseY);
+  ctx.lineTo(cx, baseY + h / 2);
+  ctx.lineTo(cx, baseY + h / 2 + totalDepth);
+  ctx.lineTo(cx + w / 2, baseY + totalDepth);
+  ctx.closePath();
+  const rightGrad = ctx.createLinearGradient(cx, baseY, cx, baseY + h / 2 + totalDepth);
+  rightGrad.addColorStop(0, colors.cliffDark);
+  rightGrad.addColorStop(0.7, shadeColor(colors.cliffDark, -0.15));
+  rightGrad.addColorStop(1, shadeColor(colors.cliffDark, -0.3));
+  ctx.fillStyle = rightGrad;
+  ctx.fill();
+  // Left face (lit side — brighter)
+  ctx.beginPath();
+  ctx.moveTo(cx - w / 2, baseY);
+  ctx.lineTo(cx, baseY + h / 2);
+  ctx.lineTo(cx, baseY + h / 2 + totalDepth);
+  ctx.lineTo(cx - w / 2, baseY + totalDepth);
+  ctx.closePath();
+  const leftGrad = ctx.createLinearGradient(cx, baseY, cx, baseY + h / 2 + totalDepth);
+  leftGrad.addColorStop(0, shadeColor(colors.cliff, 0.15));
+  leftGrad.addColorStop(0.5, colors.cliff);
+  leftGrad.addColorStop(1, shadeColor(colors.cliff, -0.12));
+  ctx.fillStyle = leftGrad;
+  ctx.fill();
 
   // Top diamond
   ctx.beginPath();
@@ -1083,9 +1087,23 @@ export function drawBattleTile(
   ctx.closePath();
   ctx.fillStyle = colors.top;
   ctx.fill();
-  ctx.strokeStyle = palette.ink;
-  ctx.lineWidth = 1;
-  ctx.stroke();
+
+  // Directional lighting on top face (NW light source)
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(cx, baseY - h / 2);
+  ctx.lineTo(cx + w / 2, baseY);
+  ctx.lineTo(cx, baseY + h / 2);
+  ctx.lineTo(cx - w / 2, baseY);
+  ctx.closePath();
+  ctx.clip();
+  const lightGrad = ctx.createLinearGradient(cx - w / 2, baseY - h / 2, cx + w / 2, baseY + h / 2);
+  lightGrad.addColorStop(0, 'rgba(255,255,240,0.12)');
+  lightGrad.addColorStop(0.6, 'rgba(0,0,0,0)');
+  lightGrad.addColorStop(1, 'rgba(0,0,0,0.1)');
+  ctx.fillStyle = lightGrad;
+  ctx.fillRect(cx - w / 2, baseY - h / 2, w, h);
+  ctx.restore();
 
   // Tile detail decorations
   ctx.save();
